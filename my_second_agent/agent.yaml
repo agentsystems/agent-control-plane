@@ -1,0 +1,10 @@
+name: hello-agent
+version: 0.1.0
+description: Demo agent built from scratch
+entrypoint: "uvicorn main:app --host 0.0.0.0 --port 8000"
+scopes:
+  external_http: false
+  vector_read: false
+  vector_write: false
+requires_gpu: false
+
