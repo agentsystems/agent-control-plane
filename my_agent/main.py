@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from datetime import date
-import pathlib, yaml
+import pathlib
+import yaml
 
 # ── Load metadata once ───────────────────────────────────────
 meta = yaml.safe_load(pathlib.Path(__file__).with_name("agent.yaml").read_text())
