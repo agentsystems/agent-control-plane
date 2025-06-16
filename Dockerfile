@@ -12,7 +12,7 @@ RUN pip install --upgrade pip \
 WORKDIR /app
 
 # Copy gateway code
-COPY cmd/gateway /app/cmd/gateway
+COPY cmd /app/cmd
 
 EXPOSE 8080
 
