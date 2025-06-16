@@ -1,4 +1,55 @@
-# AgentSystems — Local Dev Stack
+# Agent Control Plane (runtime)
+
+This repository contains the **gateway runtime** and libraries that power the Agent Platform. It no longer carries any Docker-Compose assets – those now live in the separate [`agent-platform-deployments`](https://github.com/agentsystems/agent-platform-deployments) repository.
+
+---
+
+## What’s in here
+
+| Path | Purpose |
+| ---- | ------- |
+| `cmd/gateway/` | FastAPI gateway that discovers agent containers via Docker labels and proxies requests. |
+| `model_router/` | (WIP) Simple model selection helper. |
+| `audit/` | (Planned) Append-only Postgres audit writer. |
+| `examples/agents/` | Minimal example agents built from the [agent-template](https://github.com/agentsystems/agent-template). |
+
+---
+
+## Local development
+
+```
+# clone
+git clone https://github.com/agentsystems/agent-control-plane.git
+cd agent-control-plane
+
+# create venv & install
+python -m venv .venv && source .venv/bin/activate
+pip install -e .[dev]
+
+# run gateway
+uvicorn cmd.gateway.main:app --reload --port 8080
+```
+
+Run an agent alongside it (either with Docker or `uvicorn agent.main:app`) and the gateway will auto-register it if the container is labelled `agent.enabled=true` and exposes the port declared in `agent.port`.
+
+For a full stack (gateway + Postgres + example agent, etc.) use the **agent-platform-deployments** repo:
+
+```bash
+# in a separate clone
+cd agent-platform-deployments
+docker compose -f compose/local/docker-compose.yml up -d
+```
+
+---
+
+## Release process (summary)
+1. Bump version in `pyproject.toml`.
+2. Build & push Docker image: `docker build -t agentsystems/agent-control-plane:<tag> .`.
+3. Create Git tag and release notes.
+4. Update compose / Helm charts in `agent-platform-deployments` with the new `<tag>`.
+
+---
+MIT Licence © 2025 Agent Systems
 
 One gateway, many label-discoverable agents — all in Docker Compose.
 
