@@ -7,7 +7,7 @@ FROM python:3.12-slim AS base
 
 # Install python deps
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir fastapi uvicorn[standard] httpx docker
+    && pip install --no-cache-dir fastapi uvicorn[standard] httpx docker asyncpg
 
 WORKDIR /app
 
