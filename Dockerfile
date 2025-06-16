@@ -12,8 +12,8 @@ RUN pip install --upgrade pip \
 WORKDIR /app
 
 # Copy gateway code
-COPY gateway /app/gateway
+COPY cmd/gateway /app/cmd/gateway
 
 EXPOSE 8080
 
-CMD ["uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "cmd.gateway.main:app", "--host", "0.0.0.0", "--port", "8080"]
