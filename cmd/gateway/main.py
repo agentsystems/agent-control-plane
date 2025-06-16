@@ -32,9 +32,25 @@ refresh_agents()
 @app.on_event("startup")
 async def init_db():
     global DB_POOL
-    DB_POOL = await asyncpg.create_pool(
-        host=PG_HOST, database=PG_DB, user=PG_USER, password=PG_PASSWORD, min_size=1, max_size=5
-    )
+    retries = 10
+    while retries:
+        try:
+            DB_POOL = await asyncpg.create_pool(
+                host=PG_HOST,
+                database=PG_DB,
+                user=PG_USER,
+                password=PG_PASSWORD,
+                min_size=1,
+                max_size=5,
+            )
+            break
+        except Exception as e:
+            print("[gateway] Postgres not ready, retrying…", e)
+            retries -= 1
+            await asyncio.sleep(2)
+    if DB_POOL is None:
+        print("[gateway] WARNING: audit logging disabled – could not connect to Postgres")
+        return
     # Create extension/table if absent (idempotent)
     async with DB_POOL.acquire() as conn:
         await conn.execute("""
