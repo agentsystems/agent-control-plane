@@ -15,7 +15,35 @@ This repository contains the **gateway runtime** and libraries that power the Ag
 
 ---
 
-## Local development
+## Building the gateway container
+
+This repo is intended to be **built into a container image** and then orchestrated via the manifests in [`agent-platform-deployments`](https://github.com/agentsystems/agent-platform-deployments).
+
+```
+# clone
+ git clone https://github.com/agentsystems/agent-control-plane.git
+ cd agent-control-plane
+
+# build image (adjust tag as needed)
+ docker build -t agentsystems/agent-control-plane:0.1.0 .
+```
+
+Push the image to your registry of choice and update the image tag in the deployment repo’s Compose / Helm charts.
+
+For quick code tweaks you can still run the gateway directly:
+
+```
+python -m venv .venv && source .venv/bin/activate
+pip install -e .[dev]
+uvicorn cmd.gateway.main:app --port 8080
+```
+
+But day-to-day you will spin it up via the deployment bundle, e.g.:
+
+```
+# in agent-platform-deployments
+docker compose -f compose/local/docker-compose.yml up -d gateway
+```
 
 ```
 # clone
@@ -42,7 +70,7 @@ docker compose -f compose/local/docker-compose.yml up -d
 
 ---
 
-## Release process (summary)
+## Release checklist
 1. Bump version in `pyproject.toml`.
 2. Build & push Docker image: `docker build -t agentsystems/agent-control-plane:<tag> .`.
 3. Create Git tag and release notes.
@@ -51,17 +79,13 @@ docker compose -f compose/local/docker-compose.yml up -d
 ---
 MIT Licence © 2025 Agent Systems
 
-One gateway, many label-discoverable agents — all in Docker Compose.
 
----
-
-## Prerequisites
 
 Docker Desktop 4.24 + (includes Compose v2)
 
 ---
 
-## 1. Build and start
+
 
 ```bash
 cd agentsystems/newstructure          # repo root
@@ -75,7 +99,7 @@ Swagger for any agent:
 
 ---
 
-## 2. Invoke an agent
+
 
 ```bash
 curl -X POST http://localhost:8080/my_agent \
@@ -85,7 +109,7 @@ curl -X POST http://localhost:8080/my_agent \
 
 ---
 
-## 3. Stop & clean
+
 
 ```bash
 docker compose down        # stop containers, keep images
@@ -94,7 +118,7 @@ docker system prune -f     # optional: clear build cache
 
 ---
 
-## 4. Add a new agent
+
 
 ```bash
 # copy an existing folder
@@ -131,7 +155,7 @@ curl -X POST http://localhost:8080/my_fourth_agent \
 
 ---
 
-## Component map
+
 
 Gateway  → reverse proxy + label discovery (`/gateway`)  
 Agents   → FastAPI apps in `my_*_agent/`, read their own `agent.yaml`  
