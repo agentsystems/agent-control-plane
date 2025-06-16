@@ -1,34 +1,20 @@
 version: "3.9"
 
 services:
-  my_agent:
-    build: ./my_agent
-    image: my-agent:0.1.0
-    expose: ["8000"]
-    labels:
-      - "agent.enabled=true"
-      - "agent.port=8000"
 
-  my_second_agent:
-    build: ./my_second_agent
-    image: my-second-agent:0.1.0
-    expose: ["8000"]
-    labels:
-      - "agent.enabled=true"
-      - "agent.port=8000"
 
-  my_third_agent:
-    build: ./my_third_agent
-    image: my-third-agent:0.1.0
-    expose: ["8000"]
+
+  hello-agent:
+    image: hello-agent:0.1.0
     labels:
       - "agent.enabled=true"
       - "agent.port=8000"
+    expose: ["8000"]
 
   gateway:
     build: ./gateway
     ports: ["8080:8080"]
-    depends_on: [my_agent, my_second_agent, my_third_agent]
+    depends_on: [hello-agent]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro   # read-only socket
 
