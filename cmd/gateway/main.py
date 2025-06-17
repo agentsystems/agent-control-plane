@@ -142,7 +142,12 @@ async def proxy(agent: str, request: Request):
 
 @app.get("/agents")
 async def list_agents():
-    """Return the names of every discoverable agent."""
+    """Return the names of every discoverable agent.
+
+    We refresh on-demand to avoid a race where the background Docker event
+    listener temporarily clears AGENTS right before a request.
+    """
+    refresh_agents()
     return {"agents": list(AGENTS.keys())}
 
 @app.get("/agents/{agent}")
