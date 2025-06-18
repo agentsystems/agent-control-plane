@@ -77,7 +77,7 @@ docker compose -f compose/local/docker-compose.yml up -d
 4. Update compose / Helm charts in `agent-platform-deployments` with the new `<tag>`.
 
 ---
-MIT Licence © 2025 Agent Systems
+Copyright © 2025 Agent Systems
 
 
 
@@ -91,18 +91,18 @@ Docker Desktop 4.24 + (includes Compose v2)
 cd agentsystems/newstructure          # repo root
 docker compose build                  # build agents + gateway
 docker compose up -d                  # start stack (detached)
-curl http://localhost:8080/agents     # → {"agents":[ ... ]}
+curl http://localhost:18080/agents     # → {"agents":[ ... ]}
 ```
 
 Swagger for any agent:  
-<http://localhost:8080/my_agent/docs>
+<http://localhost:18080/my_agent/docs>
 
 ---
 
 
 
 ```bash
-curl -X POST http://localhost:8080/my_agent \
+curl -X POST http://localhost:18080/my_agent \
      -H "Content-Type: application/json" \
      -d '{"today":"2025-06-13"}'
 ```
@@ -147,8 +147,8 @@ Then:
 ```bash
 docker compose build my_fourth_agent
 docker compose up -d my_fourth_agent
-curl http://localhost:8080/agents          # now lists my_fourth_agent
-curl -X POST http://localhost:8080/my_fourth_agent \
+curl http://localhost:18080/agents          # now lists my_fourth_agent
+curl -X POST http://localhost:18080/my_fourth_agent \
      -H "Content-Type: application/json" \
      -d '{"today":"2025-06-13"}'
 ```
