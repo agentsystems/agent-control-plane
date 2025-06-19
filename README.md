@@ -12,10 +12,8 @@ The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer th
 
 | Path | Purpose |
 |------|---------|
-| `cmd/gateway/` | FastAPI gateway & reverse-proxy – discovers agents by Docker/K8s labels. |
-| `audit/` | Postgres writer + hash-chain trigger (tamper-evident). |
-| `model_router/` | (WIP) Policy-based LLM selection. |
-| `examples/agents/` | Sample agents generated from the [agent-template](https://github.com/agentsystems/agent-template). |
+| `cmd/gateway/` | FastAPI gateway & reverse-proxy (discovers agents via Docker labels). |
+| `Dockerfile` | Container image build instructions. |
 
 ---
 
@@ -29,12 +27,12 @@ graph LR
     G --> A2((your-agent))
   end
   G --> PG[(Postgres)]
-  G --> LF[Langfuse]
+
 ```
 
 1. Gateway discovers containers with labels `agent.enabled=true` & `agent.port=<port>`.
 2. Auth (Bearer token placeholder) → forward to agent.
-3. Writes an append-only **audit** row (hash-chained) and streams Langfuse traces.
+3. Writes an append-only **audit** row (hash-chained).
 
 Endpoint details: [Gateway API](../docs/reference/gateway-api).
 
@@ -89,9 +87,10 @@ Update the tag in Compose / Helm (`agent-platform-deployments`).
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `ACP_BIND_PORT` | `8080` | Listen port inside container. |
-| `ACP_AUDIT_DSN` | `postgresql://user:pw@postgres:5432/acp` | Audit Postgres DSN. |
-| `ACP_ALLOWED_ORIGINS` | `*` | CORS origins. |
+| `PG_HOST` | `localhost` | Postgres host |
+| `PG_DB` | `agent_cp` | Postgres database name |
+| `PG_USER` | `agent` | Postgres user |
+| `PG_PASSWORD` | `agent` | Postgres password |
 
 ### Agent discovery labels
 
@@ -104,13 +103,13 @@ Update the tag in Compose / Helm (`agent-platform-deployments`).
 
 ## Release checklist
 
-1. Bump version in `pyproject.toml`.
-2. `docker build -t ghcr.io/agentsystems/agent-control-plane:<tag> . && docker push …`.
-3. Git tag & release notes.
-4. Update Compose / Helm manifests with new tag.
+1. Build & push Docker image: `docker build -t ghcr.io/agentsystems/agent-control-plane:<tag> . && docker push …`.
+2. Create Git tag and release notes.
+3. Update Compose / Helm manifests in `agent-platform-deployments` with the new `<tag>`. 
 
 ---
 
+<!--
 ## Legacy README
 
 **Agent Control Plane** (ACP) is the HTTP gateway and set of core micro-services that sit in front of every Agent Systems deployment.
@@ -350,3 +349,4 @@ curl -X POST http://localhost:18080/my_fourth_agent \
  + label discovery (`/gateway`)  
 Agents   → FastAPI apps in `my_*_agent/`, read their own `agent.yaml`  
 Labels   → `agent.enabled=true` & `agent.port=8000` tell the gateway to route
+-->
