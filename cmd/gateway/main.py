@@ -86,7 +86,7 @@ async def proxy_docs(agent: str):
         raise HTTPException(status_code=404, detail="unknown agent")
     async with httpx.AsyncClient() as cli:
         r = await cli.get(f"http://{agent}:8000/docs", timeout=10)
-                html = r.text.replace('url: "/openapi.json"', f'url: "/{agent}/openapi.json"')
+        html = r.text.replace('url: "/openapi.json"', f'url: "/{agent}/openapi.json"')
         return HTMLResponse(content=html, status_code=r.status_code)
 
 
