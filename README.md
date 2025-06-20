@@ -23,7 +23,7 @@ The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer th
 graph LR
   C((Client)) -- 18080 --> G[Gateway]
   subgraph "agents-net"
-    G -- 8080 --> A1((hello-agent))
+    G -- 8080 --> A1((hello-world-agent))
     G --> A2((your-agent))
   end
   G --> PG[(Postgres)]
@@ -50,10 +50,10 @@ for r in agent-control-plane agent-platform-deployments agent-template; do
 done
 
 cd agent-platform-deployments
-make up    # gateway + Postgres + hello-agent
+make up    # gateway + Postgres + hello-world-agent
 ```
 
-• Swagger: <http://localhost:18080/hello-agent/docs>  
+• Swagger: <http://localhost:18080/hello-world-agent/docs>  
 • List agents: `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
 
 ---
@@ -173,7 +173,7 @@ make up        # docker compose up -d (gateway + Postgres + example agent)
 ```
 
 Browse:  
-• Gateway Swagger UI → <http://localhost:18080/hello-agent/docs>  
+• Gateway Swagger UI → <http://localhost:18080/hello-world-agent/docs>  
 • List agents        → `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
 
 ## Local development (hot reload)
