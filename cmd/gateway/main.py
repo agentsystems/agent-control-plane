@@ -1,6 +1,8 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 import os, json, asyncpg
 import httpx, docker, asyncio, uuid
+
+from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI(title="Agent Gateway (label-discover)")
 
@@ -76,6 +78,26 @@ async def watch_docker():
         for _ in client.events(decode=True):
             refresh_agents()
     loop.run_in_executor(None, _watch)
+
+@app.get("/{agent}/docs", response_class=HTMLResponse)
+async def proxy_docs(agent: str):
+    """Serve the FastAPI Swagger UI of a given agent through the gateway."""
+    if agent not in AGENTS:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    async with httpx.AsyncClient() as cli:
+        r = await cli.get(f"http://{agent}:8000/docs", timeout=10)
+        return HTMLResponse(content=r.text, status_code=r.status_code)
+
+
+@app.get("/{agent}/openapi.json", response_class=JSONResponse)
+async def proxy_openapi(agent: str):
+    """Expose the agent's OpenAPI schema so Swagger UI loads correctly."""
+    if agent not in AGENTS:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    async with httpx.AsyncClient() as cli:
+        r = await cli.get(f"http://{agent}:8000/openapi.json", timeout=10)
+        return JSONResponse(content=r.json(), status_code=r.status_code)
+
 
 @app.post("/{agent}")
 async def proxy(agent: str, request: Request):
