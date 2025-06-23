@@ -3,7 +3,7 @@
 The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer that fronts every AgentSystems deployment.
 
 * Repo: `agentsystems/agent-control-plane`
-* Image: `ghcr.io/agentsystems/agent-control-plane:<tag>`
+* Image: `agentsystems/agent-control-plane:<tag>`
 * Part of the multi-repo platform – full picture in the [Mintlify docs](../docs/overview).
 
 ---
@@ -72,12 +72,16 @@ uvicorn cmd.gateway.main:app --reload --port 8080
 ## Build & push container
 
 ```bash
+# Pull the latest published image (recommended for most users)
+docker pull agentsystems/agent-control-plane:latest
+
+# OR build a local image for experimentation
+git clone https://github.com/agentsystems/agent-control-plane.git
 cd agent-control-plane
-docker build -t ghcr.io/agentsystems/agent-control-plane:<tag> .
-docker push ghcr.io/agentsystems/agent-control-plane:<tag>
+./build_and_release.sh --version dev           # local build, no push
 ```
 
-Update the tag in Compose / Helm (`agent-platform-deployments`).
+If you built a custom image, update the tag in your Compose / Helm manifests (`agent-platform-deployments`).
 
 ---
 
@@ -101,11 +105,9 @@ Update the tag in Compose / Helm (`agent-platform-deployments`).
 
 ---
 
-## Release checklist
+## Contributing
 
-1. Build & push Docker image: `docker build -t ghcr.io/agentsystems/agent-control-plane:<tag> . && docker push …`.
-2. Create Git tag and release notes.
-3. Update Compose / Helm manifests in `agent-platform-deployments` with the new `<tag>`. 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on contributing to this project.
 
 ---
 
