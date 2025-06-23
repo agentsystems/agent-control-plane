@@ -32,7 +32,9 @@ This document explains **how to cut a new Docker image release** for the Gateway
 ./build_and_release.sh --version 0.4.0 --push
 ```
 
-What happens:
+The script will display a summary and ask for confirmation before proceeding.
+
+What happens after you confirm:
 
 1. Checks that **`v0.4.0`** Git tag doesn’t exist.
 2. Builds multi-arch image using Buildx.

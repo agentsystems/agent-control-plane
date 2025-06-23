@@ -117,6 +117,17 @@ echo "# Platforms      : $PLATFORM"
 echo "# Push after build: $PUSH"
 echo "# ------------------------------------------------------------"
 
+# --- confirmation -----------------------------------------------------------
+if [[ "$PUSH" == "true" ]]; then
+  if [[ -t 0 ]]; then
+    read -r -p "Proceed with build, push and tag? [y/N]: " resp
+    [[ "$resp" =~ ^[Yy]([Ee][Ss])?$ ]] || { echo "Aborting."; exit 1; }
+  else
+    echo "Error: interactive confirmation required for --push, but no TTY detected." >&2
+    exit 1
+  fi
+fi
+
 "${BUILD_CMD[@]}"
 
 echo "Image $IMAGE:$DOCKER_VERSION built successfully."
