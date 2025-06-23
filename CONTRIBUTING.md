@@ -29,10 +29,7 @@ This document explains **how to cut a new Docker image release** for the Gateway
 ## 3 – Standard Release (one-liner)
 
 ```bash
-./build_and_release.sh \
-  --version 0.4.0 \
-  --push           \
-  --git-tag
+./build_and_release.sh --version 0.4.0 --push
 ```
 
 What happens:
@@ -40,9 +37,9 @@ What happens:
 1. Checks that **`v0.4.0`** Git tag doesn’t exist.
 2. Builds multi-arch image using Buildx.
 3. Pushes both `0.4.0` and `latest` tags to Docker Hub.
-4. Creates and pushes Git tag **`v0.4.0`** pointing to the current commit.
+4. Automatically creates and pushes Git tag **`v0.4.0`** pointing to the current commit.
 
-> Tip – Omit `--push` to build locally, or omit `--git-tag` for dry-runs.
+> Tip – Omit `--push` to build locally without pushing / tagging.
 
 ---
 
@@ -102,5 +99,11 @@ Need an iterative build without pushing to Hub?
 ```
 
 Then run `docker compose up gateway` from the deployments repo and point the service to `agent-control-plane:dev`.
+
+---
+
+### Why no `--git-tag` flag?
+
+Tagging is mandatory for every pushed image, ensuring a one-to-one mapping between Docker images and source commits. This prevents “orphan” images and keeps release history clean.
 
 Happy shipping! 🚀
