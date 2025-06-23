@@ -30,7 +30,7 @@ def refresh_agents():
 
 refresh_agents()
 
-# background watcher (optional but nice)
+# background watcher (optional)
 @app.on_event("startup")
 async def init_db():
     global DB_POOL
