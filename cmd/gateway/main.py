@@ -14,7 +14,7 @@ PG_PASSWORD = os.getenv("PG_PASSWORD", "agent")
 DB_POOL: asyncpg.Pool | None = None
 
 client = docker.DockerClient.from_env()
-AGENTS = {}            # name -> target URL
+AGENTS = {} # name -> target URL
 
 def refresh_agents():
     global AGENTS
