@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI(title="Agent Gateway (label-discover)")
 
-# ─ Postgres connection (set via env, defaults valid for local compose) ──
+# Postgres connection (set via env, defaults valid for local compose)
 PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_DB = os.getenv("PG_DB", "agent_cp")
 PG_USER = os.getenv("PG_USER", "agent")
