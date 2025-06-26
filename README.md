@@ -105,6 +105,43 @@ If you built a custom image, update the tag in your Compose / Helm manifests (`a
 
 ---
 
+## Registry catalogue (remote container registries)
+
+ACP keeps an internal list of *approved* registries. The gateway will **only pull** agent images whose registry hostname appears in this catalogue *and* is marked `enabled=true`.
+
+| Field      | Example                                   | Description                                       |
+|------------|-------------------------------------------|---------------------------------------------------|
+| `name`     | agentsystems-default                      | Friendly label                                    |
+| `url`      | https://registry.agentsystems.ai          | Base URL (scheme + host)                          |
+| `auth_type`| none \| basic \| bearer                  | Authentication strategy                           |
+| `username` | svc-user                                  | Username / PAT owner (for `basic` auth)           |
+| `password` | ***                                       | Password / token (stored *as-is* for now)         |
+| `enabled`  | true                                      | Soft-delete / toggle without losing credentials   |
+
+API endpoints exposed by the gateway:
+
+* `GET  /registries` – list catalogue rows
+* `POST /registries` – add a new registry
+* `PATCH /registries/{id}` – update or enable/disable an existing row
+
+Example: add the default AgentSystems registry
+```bash
+curl -X POST http://localhost:8080/registries \
+     -H 'Content-Type: application/json' \
+     -d '{
+           "name": "agentsystems-default",
+           "url": "https://registry.agentsystems.ai",
+           "auth_type": "basic",
+           "username": "svc-user",
+           "password": "<token>",
+           "enabled": true
+         }'
+```
+
+If the gateway attempts to route to an agent image whose hostname is **not** in the catalogue or is disabled, the request will fail with `404 registry not configured`.
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on contributing to this project.
