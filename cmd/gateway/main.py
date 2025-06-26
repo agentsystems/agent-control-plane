@@ -265,6 +265,16 @@ async def update_registry(registry_id: uuid.UUID, reg: RegistryUpdate):
         raise HTTPException(status_code=404, detail="registry not found")
     return dict(row)
 
+@app.delete("/registries/{registry_id}")
+async def delete_registry(registry_id: uuid.UUID):
+    """Delete a registry entry by ID."""
+    if not DB_POOL:
+        raise HTTPException(status_code=500, detail="DB not initialized")
+    row = await DB_POOL.fetchrow("DELETE FROM registries WHERE id=$1 RETURNING id", registry_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="registry not found")
+    return {"deleted": True, "id": str(row["id"])}
+
 # ---------------- Existing health endpoint -----------------
 @app.get("/health")
 async def health():
