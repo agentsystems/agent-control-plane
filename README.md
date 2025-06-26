@@ -389,3 +389,6 @@ curl -X POST http://localhost:18080/my_fourth_agent \
 Agents   → FastAPI apps in `my_*_agent/`, read their own `agent.yaml`  
 Labels   → `agent.enabled=true` & `agent.port=8000` tell the gateway to route
 -->
+
+
+adding snapshot
