@@ -1,6 +1,9 @@
 from fastapi import FastAPI, Request, HTTPException
 import os, json, asyncpg
 import httpx, docker, asyncio, uuid
+from pydantic import BaseModel
+from typing import Optional
+import datetime
 
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -16,19 +19,28 @@ DB_POOL: asyncpg.Pool | None = None
 client = docker.DockerClient.from_env()
 AGENTS = {} # name -> target URL
 
-def refresh_agents():
+def refresh_agents(verbose: bool = False):
+    """Discover containers with `agent.enabled=true` and rebuild the in-memory map.
+
+    If *verbose* is False (default), the function only prints when the set of
+    discovered agents has changed since the previous call. When True it always
+    prints the list – useful for startup diagnostics.
+    """
     global AGENTS
-    AGENTS = {}
-    for c in client.containers.list(
-            filters={"label": "agent.enabled=true"}):
-
+    new_agents: dict[str, str] = {}
+    for c in client.containers.list(filters={"label": "agent.enabled=true"}):
         name = c.labels.get("com.docker.compose.service", c.name)
-
         port = c.labels.get("agent.port", "8000")
-        AGENTS[name] = f"http://{name}:{port}/invoke"
-    print("Discovered agents →", AGENTS)
+        new_agents[name] = f"http://{name}:{port}/invoke"
 
-refresh_agents()
+    agents_changed = new_agents != AGENTS
+    AGENTS = new_agents
+
+    if verbose or agents_changed:
+        print("Discovered agents →", AGENTS)
+
+# Initial discovery with verbose logging
+refresh_agents(verbose=True)
 
 # background watcher (optional)
 @app.on_event("startup")
@@ -68,6 +80,20 @@ async def init_db():
           status_code SMALLINT NOT NULL,
           payload JSONB,
           error_msg TEXT
+        );
+        """)
+        # Ensure registries table exists
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS registries (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name TEXT NOT NULL,
+          url TEXT NOT NULL,
+          auth_type TEXT NOT NULL,
+          username TEXT,
+          password TEXT,
+          enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
         """)
 
@@ -181,6 +207,65 @@ async def agent_detail(agent: str):
         r = await cli.get(f"http://{agent}:8000/metadata", timeout=10)
     return r.json()
 
+# ---------------- Registry catalogue -----------------
+class RegistryCreate(BaseModel):
+    name: str
+    url: str
+    auth_type: str = "none"  # none | basic | bearer
+    username: Optional[str] = None
+    password: Optional[str] = None
+    enabled: bool = True
+
+class RegistryUpdate(BaseModel):
+    name: Optional[str] = None
+    url: Optional[str] = None
+    auth_type: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    enabled: Optional[bool] = None
+
+@app.get("/registries")
+async def list_registries():
+    """Return all registries currently stored in the catalogue."""
+    if DB_POOL:
+        rows = await DB_POOL.fetch("SELECT * FROM registries ORDER BY created_at")
+        return [dict(r) for r in rows]
+    return []
+
+@app.post("/registries")
+async def create_registry(reg: RegistryCreate):
+    if not DB_POOL:
+        raise HTTPException(status_code=500, detail="DB not initialized")
+    row = await DB_POOL.fetchrow(
+        """INSERT INTO registries (name, url, auth_type, username, password, enabled)
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING *""",
+        reg.name, reg.url, reg.auth_type, reg.username, reg.password, reg.enabled,
+    )
+    return dict(row)
+
+@app.patch("/registries/{registry_id}")
+async def update_registry(registry_id: uuid.UUID, reg: RegistryUpdate):
+    if not DB_POOL:
+        raise HTTPException(status_code=500, detail="DB not initialized")
+    updates = reg.dict(exclude_unset=True)
+    if not updates:
+        return {"updated": False}
+    set_clauses = []
+    values = []
+    idx = 1
+    for k, v in updates.items():
+        set_clauses.append(f"{k}=${idx}")
+        values.append(v)
+        idx += 1
+    set_clauses.append("updated_at=now()")
+    query = "UPDATE registries SET " + ", ".join(set_clauses) + f" WHERE id=${idx} RETURNING *"
+    values.append(registry_id)
+    row = await DB_POOL.fetchrow(query, *values)
+    if row is None:
+        raise HTTPException(status_code=404, detail="registry not found")
+    return dict(row)
+
+# ---------------- Existing health endpoint -----------------
 @app.get("/health")
 async def health():
     return {"status": "ok", "agents": list(AGENTS.keys())}
