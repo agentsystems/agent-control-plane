@@ -1,6 +1,6 @@
 # Agent Control Plane
 
-The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer that fronts every AgentSystems deployment.
+The Agent Control Plane (ACP) is the HTTP gateway and core services layer that fronts every AgentSystems deployment.
 
 * Repo: `agentsystems/agent-control-plane`
 * Image: `agentsystems/agent-control-plane:<tag>`
