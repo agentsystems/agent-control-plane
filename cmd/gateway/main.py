@@ -35,8 +35,13 @@ def extract_registry(image_ref: str) -> str:
         return first.lower()
     return 'docker.io'
 
-async def refresh_enabled_registries():
-    """Populate ENABLED_REGISTRY_HOSTS from the DB."""
+async def refresh_enabled_registries(trigger_discovery: bool = True):
+    """Populate ENABLED_REGISTRY_HOSTS from the DB.
+
+    If ``trigger_discovery`` is True, refresh the in-memory AGENTS map right after
+    updating the cache so that registry changes take immediate effect without
+    waiting for a Docker event.
+    """
     global ENABLED_REGISTRY_HOSTS
     if not DB_POOL:
         ENABLED_REGISTRY_HOSTS = {'docker.io'}  # sane default for early startup
@@ -52,6 +57,8 @@ async def refresh_enabled_registries():
         hosts.add('docker.io')  # always allow hub if catalogue empty
     ENABLED_REGISTRY_HOSTS = hosts
     print('[gateway] Enabled registries ->', ENABLED_REGISTRY_HOSTS)
+    if trigger_discovery:
+        refresh_agents()
 
 
 def refresh_agents(verbose: bool = False):
