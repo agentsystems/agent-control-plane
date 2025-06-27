@@ -16,19 +16,59 @@ PG_USER = os.getenv("PG_USER", "agent")
 PG_PASSWORD = os.getenv("PG_PASSWORD", "agent")
 DB_POOL: asyncpg.Pool | None = None
 
+# Cache of approved registry hostnames (e.g. "docker.io", "registry.agentsystems.ai")
+ENABLED_REGISTRY_HOSTS: set[str] = set()
+
 client = docker.DockerClient.from_env()
 AGENTS = {} # name -> target URL
+
+
+def extract_registry(image_ref: str) -> str:
+    """Return the registry hostname part of a Docker image reference.
+
+    Rules (heuristic, good enough for MVP):
+    1. If the reference contains a host (has a '.' or ':' before first '/') → take that segment.
+    2. Else treat it as Docker Hub → return 'docker.io'.
+    """
+    first = image_ref.split('/')[0]
+    if ('.' in first) or (':' in first) or first == 'localhost':
+        return first.lower()
+    return 'docker.io'
+
+async def refresh_enabled_registries():
+    """Populate ENABLED_REGISTRY_HOSTS from the DB."""
+    global ENABLED_REGISTRY_HOSTS
+    if not DB_POOL:
+        ENABLED_REGISTRY_HOSTS = {'docker.io'}  # sane default for early startup
+        return
+    rows = await DB_POOL.fetch("SELECT url FROM registries WHERE enabled = TRUE")
+    hosts = set()
+    for r in rows:
+        url = r['url']
+        # url stored with http/https scheme; strip scheme and any path
+        host = url.split('://')[-1].split('/')[0].lower()
+        hosts.add(host)
+    if not hosts:
+        hosts.add('docker.io')  # always allow hub if catalogue empty
+    ENABLED_REGISTRY_HOSTS = hosts
+    print('[gateway] Enabled registries ->', ENABLED_REGISTRY_HOSTS)
+
 
 def refresh_agents(verbose: bool = False):
     """Discover containers with `agent.enabled=true` and rebuild the in-memory map.
 
-    If *verbose* is False (default), the function only prints when the set of
-    discovered agents has changed since the previous call. When True it always
-    prints the list – useful for startup diagnostics.
+    Containers whose image registry host is *not* in ENABLED_REGISTRY_HOSTS are ignored.
     """
     global AGENTS
     new_agents: dict[str, str] = {}
     for c in client.containers.list(filters={"label": "agent.enabled=true"}):
+        # Determine registry host of the image
+        image_ref = (c.image.tags[0] if c.image.tags else c.attrs.get('Config', {}).get('Image', ''))
+        host = extract_registry(image_ref)
+        if host not in ENABLED_REGISTRY_HOSTS:
+            print(f"[gateway] Skipping agent {c.name} – registry '{host}' not enabled")
+            continue
+
         name = c.labels.get("com.docker.compose.service", c.name)
         port = c.labels.get("agent.port", "8000")
         new_agents[name] = f"http://{name}:{port}/invoke"
@@ -39,7 +79,7 @@ def refresh_agents(verbose: bool = False):
     if verbose or agents_changed:
         print("Discovered agents →", AGENTS)
 
-# Initial discovery with verbose logging
+# Initial discovery with verbose logging (registry list may still be empty at this point)
 refresh_agents(verbose=True)
 
 # background watcher (optional)
@@ -139,6 +179,7 @@ async def create_registry(reg: RegistryCreate):
            VALUES ($1,$2,$3,$4,$5,$6) RETURNING *""",
         reg.name, reg.url, reg.auth_type, reg.username, reg.password, reg.enabled,
     )
+    await refresh_enabled_registries()
     return dict(row)
 
 @app.patch("/registries/{registry_id}")
@@ -161,6 +202,7 @@ async def update_registry(registry_id: uuid.UUID, reg: RegistryUpdate):
     row = await DB_POOL.fetchrow(query, *values)
     if row is None:
         raise HTTPException(status_code=404, detail="registry not found")
+    await refresh_enabled_registries()
     return dict(row)
 
 @app.delete("/registries/{registry_id}")
@@ -171,6 +213,7 @@ async def delete_registry(registry_id: uuid.UUID):
     row = await DB_POOL.fetchrow("DELETE FROM registries WHERE id=$1 RETURNING id", registry_id)
     if row is None:
         raise HTTPException(status_code=404, detail="registry not found")
+    await refresh_enabled_registries()
     return {"deleted": True, "id": str(row["id"])}
 
 @app.get("/{agent}/docs", response_class=HTMLResponse)
@@ -281,4 +324,3 @@ async def agent_detail(agent: str):
 @app.get("/health")
 async def health():
     return {"status": "ok", "agents": list(AGENTS.keys())}
-
