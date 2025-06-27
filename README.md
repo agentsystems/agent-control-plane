@@ -118,6 +118,42 @@ ACP keeps an internal list of *approved* registries. The gateway will **only pul
 | `password` | ***                                       | Password / token (stored *as-is* for now)         |
 | `enabled`  | true                                      | Soft-delete / toggle without losing credentials   |
 
+### API endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET    | `/registries` | List all registries |
+| POST   | `/registries` | Create a new registry |
+| PATCH  | `/registries/{id}` | Update a registry (e.g. enable / disable) |
+| DELETE | `/registries/{id}` | Permanently delete a registry |
+
+### CLI shortcuts (agentsystems-sdk ≥ 0.2.0)
+
+```bash
+# list
+agentsystems registry list
+
+# add
+agentsystems registry add https://registry.agentsystems.ai \
+        --name agentsystems-default --auth basic -u svc-user -p abc123
+
+# toggle
+agentsystems registry toggle <uuid> --disable   # or --enable
+
+# delete
+agentsystems registry delete <uuid> -y
+```
+
+### Compose / Kubernetes networking note
+The gateway container **must** be able to resolve the hostname specified in `PG_HOST`.
+In the provided `compose/local/docker-compose.yml` we attach **Postgres** to both the
+`default` network and the external `agents-net` network so that:
+
+1. Internal services on the default network can reach Postgres.
+2. The gateway (running on `agents-net`) can also connect without additional proxies.
+
+If you customise your deployment (Helm, ECS, etc.) ensure a similar network path exists.
+
 API endpoints exposed by the gateway:
 
 * `GET  /registries` – list catalogue rows
