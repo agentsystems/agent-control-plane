@@ -1,9 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
 import os, json, asyncpg
 import httpx, docker, asyncio, uuid
-from pydantic import BaseModel
-from typing import Optional
-import datetime
 
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -16,78 +13,22 @@ PG_USER = os.getenv("PG_USER", "agent")
 PG_PASSWORD = os.getenv("PG_PASSWORD", "agent")
 DB_POOL: asyncpg.Pool | None = None
 
-# Cache of approved registry hostnames (e.g. "docker.io", "registry.agentsystems.ai")
-ENABLED_REGISTRY_HOSTS: set[str] = set()
-
 client = docker.DockerClient.from_env()
 AGENTS = {} # name -> target URL
 
-
-def extract_registry(image_ref: str) -> str:
-    """Return the registry hostname part of a Docker image reference.
-
-    Rules (heuristic, good enough for MVP):
-    1. If the reference contains a host (has a '.' or ':' before first '/') → take that segment.
-    2. Else treat it as Docker Hub → return 'docker.io'.
-    """
-    first = image_ref.split('/')[0]
-    if ('.' in first) or (':' in first) or first == 'localhost':
-        return first.lower()
-    return 'docker.io'
-
-async def refresh_enabled_registries(trigger_discovery: bool = True):
-    """Populate ENABLED_REGISTRY_HOSTS from the DB.
-
-    If ``trigger_discovery`` is True, refresh the in-memory AGENTS map right after
-    updating the cache so that registry changes take immediate effect without
-    waiting for a Docker event.
-    """
-    global ENABLED_REGISTRY_HOSTS
-    if not DB_POOL:
-        ENABLED_REGISTRY_HOSTS = {'docker.io'}  # sane default for early startup
-        return
-    rows = await DB_POOL.fetch("SELECT url FROM registries WHERE enabled = TRUE")
-    hosts = set()
-    for r in rows:
-        url = r['url']
-        # url stored with http/https scheme; strip scheme and any path
-        host = url.split('://')[-1].split('/')[0].lower()
-        hosts.add(host)
-    if not hosts:
-        hosts.add('docker.io')  # always allow hub if catalogue empty
-    ENABLED_REGISTRY_HOSTS = hosts
-    print('[gateway] Enabled registries ->', ENABLED_REGISTRY_HOSTS)
-    if trigger_discovery:
-        refresh_agents()
-
-
-def refresh_agents(verbose: bool = False):
-    """Discover containers with `agent.enabled=true` and rebuild the in-memory map.
-
-    Containers whose image registry host is *not* in ENABLED_REGISTRY_HOSTS are ignored.
-    """
+def refresh_agents():
     global AGENTS
-    new_agents: dict[str, str] = {}
-    for c in client.containers.list(filters={"label": "agent.enabled=true"}):
-        # Determine registry host of the image
-        image_ref = (c.image.tags[0] if c.image.tags else c.attrs.get('Config', {}).get('Image', ''))
-        host = extract_registry(image_ref)
-        if host not in ENABLED_REGISTRY_HOSTS:
-            print(f"[gateway] Skipping agent {c.name} – registry '{host}' not enabled")
-            continue
+    AGENTS = {}
+    for c in client.containers.list(
+            filters={"label": "agent.enabled=true"}):
 
         name = c.labels.get("com.docker.compose.service", c.name)
+
         port = c.labels.get("agent.port", "8000")
-        new_agents[name] = f"http://{name}:{port}/invoke"
+        AGENTS[name] = f"http://{name}:{port}/invoke"
+    print("Discovered agents →", AGENTS)
 
-    agents_changed = new_agents != AGENTS
-    AGENTS = new_agents
-
-    if verbose or agents_changed:
-        print("Discovered agents →", AGENTS)
-
-# Initial discovery with verbose logging (registry list may still be empty at this point)
-refresh_agents(verbose=True)
+refresh_agents()
 
 # background watcher (optional)
 @app.on_event("startup")
@@ -129,20 +70,6 @@ async def init_db():
           error_msg TEXT
         );
         """)
-        # Ensure registries table exists
-        await conn.execute("""
-        CREATE TABLE IF NOT EXISTS registries (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          name TEXT NOT NULL,
-          url TEXT NOT NULL,
-          auth_type TEXT NOT NULL,
-          username TEXT,
-          password TEXT,
-          enabled BOOLEAN NOT NULL DEFAULT TRUE,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-        """)
 
 @app.on_event("startup")
 async def watch_docker():
@@ -151,77 +78,6 @@ async def watch_docker():
         for _ in client.events(decode=True):
             refresh_agents()
     loop.run_in_executor(None, _watch)
-
-# ---------------- Registry catalogue -----------------
-class RegistryCreate(BaseModel):
-    name: str
-    url: str
-    auth_type: str = "none"  # none | basic | bearer
-    username: Optional[str] = None
-    password: Optional[str] = None
-    enabled: bool = True
-
-class RegistryUpdate(BaseModel):
-    name: Optional[str] = None
-    url: Optional[str] = None
-    auth_type: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    enabled: Optional[bool] = None
-
-@app.get("/registries")
-async def list_registries():
-    """Return all registries currently stored in the catalogue."""
-    if DB_POOL:
-        rows = await DB_POOL.fetch("SELECT * FROM registries ORDER BY created_at")
-        return [dict(r) for r in rows]
-    return []
-
-@app.post("/registries")
-async def create_registry(reg: RegistryCreate):
-    if not DB_POOL:
-        raise HTTPException(status_code=500, detail="DB not initialized")
-    row = await DB_POOL.fetchrow(
-        """INSERT INTO registries (name, url, auth_type, username, password, enabled)
-           VALUES ($1,$2,$3,$4,$5,$6) RETURNING *""",
-        reg.name, reg.url, reg.auth_type, reg.username, reg.password, reg.enabled,
-    )
-    await refresh_enabled_registries()
-    return dict(row)
-
-@app.patch("/registries/{registry_id}")
-async def update_registry(registry_id: uuid.UUID, reg: RegistryUpdate):
-    if not DB_POOL:
-        raise HTTPException(status_code=500, detail="DB not initialized")
-    updates = reg.dict(exclude_unset=True)
-    if not updates:
-        return {"updated": False}
-    set_clauses = []
-    values = []
-    idx = 1
-    for k, v in updates.items():
-        set_clauses.append(f"{k}=${idx}")
-        values.append(v)
-        idx += 1
-    set_clauses.append("updated_at=now()")
-    query = "UPDATE registries SET " + ", ".join(set_clauses) + f" WHERE id=${idx} RETURNING *"
-    values.append(registry_id)
-    row = await DB_POOL.fetchrow(query, *values)
-    if row is None:
-        raise HTTPException(status_code=404, detail="registry not found")
-    await refresh_enabled_registries()
-    return dict(row)
-
-@app.delete("/registries/{registry_id}")
-async def delete_registry(registry_id: uuid.UUID):
-    """Delete a registry entry by ID."""
-    if not DB_POOL:
-        raise HTTPException(status_code=500, detail="DB not initialized")
-    row = await DB_POOL.fetchrow("DELETE FROM registries WHERE id=$1 RETURNING id", registry_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="registry not found")
-    await refresh_enabled_registries()
-    return {"deleted": True, "id": str(row["id"])}
 
 @app.get("/{agent}/docs", response_class=HTMLResponse)
 async def proxy_docs(agent: str):
@@ -325,9 +181,7 @@ async def agent_detail(agent: str):
         r = await cli.get(f"http://{agent}:8000/metadata", timeout=10)
     return r.json()
 
-
-
-# ---------------- Existing health endpoint -----------------
 @app.get("/health")
 async def health():
     return {"status": "ok", "agents": list(AGENTS.keys())}
+

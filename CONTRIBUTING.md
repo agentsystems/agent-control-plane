@@ -108,35 +108,4 @@ Then run `docker compose up gateway` from the deployments repo and point the ser
 
 Tagging is mandatory for every pushed image, ensuring a one-to-one mapping between Docker images and source commits. This prevents “orphan” images and keeps release history clean.
 
----
-
-## 8 – Database schema changes
-
-ACP bootstraps its tables at runtime using raw SQL in `cmd/gateway/main.py`.
-Until we introduce a dedicated migration tool, **any change to the database schema must be reflected there**.
-
-1. Extend the `CREATE TABLE IF NOT EXISTS` block with new columns / indexes.
-2. Add accompanying `ALTER TABLE` statements so existing deployments migrate automatically.
-3. Keep changes backward-compatible; production DBs may already hold data.
-
-> Tip – update the version number in the gateway log line (`Schema vX`) so operators know a restart applied the change.
-
----
-
-## 9 – Roadmap / future enhancements (post-MVP)
-
-The current codebase focuses on an **MVP** feature set. The items below are planned but intentionally deferred to keep the initial release lean. PRs are welcome!
-
-| Feature | Rationale / Notes |
-|---------|-------------------|
-| **SQLAlchemy models** | Replace raw SQL with ORM for cleaner queries and easier testing |
-| **Alembic migrations** | Schema versioning & safe roll-backs; will be added once the schema stabilises |
-| **Registry pull enforcement** | Block agent invocations whose images reside in non-catalogue registries |
-| **Model-binding layer** | Inject user-supplied LLM credentials into agent containers |
-| **Admin UI** | Web front-end for registry & model management (SDK commands under the hood) |
-| **Audit log indexes** | Performance optimisation for large request logs |
-| **RBAC** | Fine-grained permissions for registry management and agent invocation |
-
-Feel free to open an issue or draft PR for any of these when you’re ready to contribute.
-
 Happy shipping! 🚀
