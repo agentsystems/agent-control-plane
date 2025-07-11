@@ -64,7 +64,8 @@ make up    # gateway + Postgres + hello-world-agent
 cd agent-control-plane
 python -m venv .venv && source .venv/bin/activate
 pip install -e .[dev]
-uvicorn cmd.gateway.main:app --reload --port 8080
+# override port via env if desired
+ACP_BIND_PORT=8088 uvicorn cmd.gateway.main:app --reload --port ${ACP_BIND_PORT:-8080}
 ```
 
 ---
@@ -184,7 +185,8 @@ Browse:
 cd agent-control-plane
 python -m venv .venv && source .venv/bin/activate
 pip install -e .[dev]
-uvicorn cmd.gateway.main:app --reload --port 8080
+# override port via env if desired
+ACP_BIND_PORT=8088 uvicorn cmd.gateway.main:app --reload --port ${ACP_BIND_PORT:-8080}
 ```
 
 Point the deployment’s compose file at `host.docker.internal:8080` or run an agent locally on port 8000 and the gateway will pick it up.
@@ -210,7 +212,8 @@ Push the image to your registry of choice and update the image tag in the deploy
 ```
  && source .venv/bin/activate
 pip install -e .[dev]
-uvicorn cmd.gateway.main:app --port 8080
+# override port via env if desired
+ACP_BIND_PORT=8088 uvicorn cmd.gateway.main:app --port ${ACP_BIND_PORT:-8080}
 ```
 
 But day-to-day you will spin it up via the deployment bundle, e.g.:
@@ -230,7 +233,8 @@ cd agent-control-plane
 pip install -e .[dev]
 
 # run gateway
-uvicorn cmd.gateway.main:app --reload --port 8080
+# override port via env if desired
+ACP_BIND_PORT=8088 uvicorn cmd.gateway.main:app --reload --port ${ACP_BIND_PORT:-8080}
 ```
 
  (either with Docker or `uvicorn agent.main:app`) and the gateway will auto-register it if the container is labelled `agent.enabled=true` and exposes the port declared in `agent.port`.
