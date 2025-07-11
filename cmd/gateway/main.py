@@ -39,14 +39,18 @@ async def init_db():
     retries = 10
     while retries:
         try:
-            DB_POOL = await asyncpg.create_pool(
-                host=PG_HOST,
-                database=PG_DB,
-                user=PG_USER,
-                password=PG_PASSWORD,
-                min_size=1,
-                max_size=5,
-            )
+            dsn = os.getenv("ACP_AUDIT_DSN")
+            pool_kwargs = {"min_size": 1, "max_size": 5}
+            if dsn:
+                pool_kwargs["dsn"] = dsn
+            else:
+                pool_kwargs.update(
+                    host=PG_HOST,
+                    database=PG_DB,
+                    user=PG_USER,
+                    password=PG_PASSWORD,
+                )
+            DB_POOL = await asyncpg.create_pool(**pool_kwargs)
             break
         except Exception as e:
             logger.warning("postgres_not_ready_retry", error=str(e))
