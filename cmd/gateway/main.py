@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Request, HTTPException
 import os, json, asyncpg
-import httpx, docker, asyncio, uuid
+import httpx, docker, asyncio, uuid, structlog
+
+logger = structlog.get_logger()
 
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -26,7 +28,7 @@ def refresh_agents():
 
         port = c.labels.get("agent.port", "8000")
         AGENTS[name] = f"http://{name}:{port}/invoke"
-    print("Discovered agents →", AGENTS)
+    logger.info("discovered_agents", agents=AGENTS)
 
 refresh_agents()
 
@@ -37,21 +39,25 @@ async def init_db():
     retries = 10
     while retries:
         try:
-            DB_POOL = await asyncpg.create_pool(
-                host=PG_HOST,
-                database=PG_DB,
-                user=PG_USER,
-                password=PG_PASSWORD,
-                min_size=1,
-                max_size=5,
-            )
+            dsn = os.getenv("ACP_AUDIT_DSN")
+            pool_kwargs = {"min_size": 1, "max_size": 5}
+            if dsn:
+                pool_kwargs["dsn"] = dsn
+            else:
+                pool_kwargs.update(
+                    host=PG_HOST,
+                    database=PG_DB,
+                    user=PG_USER,
+                    password=PG_PASSWORD,
+                )
+            DB_POOL = await asyncpg.create_pool(**pool_kwargs)
             break
         except Exception as e:
-            print("[gateway] Postgres not ready, retrying…", e)
+            logger.warning("postgres_not_ready_retry", error=str(e))
             retries -= 1
             await asyncio.sleep(2)
     if DB_POOL is None:
-        print("[gateway] WARNING: audit logging disabled – could not connect to Postgres")
+        logger.warning("audit_disabled_postgres_unreachable")
         return
     # Create extension/table if absent (idempotent)
     async with DB_POOL.acquire() as conn:
