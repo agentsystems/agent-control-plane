@@ -1,2 +1,25 @@
-.env
+# Python bytecode
 __pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+
+# Environment / secrets
+.env
+.env.*
+
+# Logs
+*.log
+
+# Build artefacts
+dist/
+build/
+
+# IDE / editor folders
+.vscode/
+.idea/
+
+# Docker files
+*.tar
