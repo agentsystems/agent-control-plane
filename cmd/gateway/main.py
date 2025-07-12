@@ -1,10 +1,16 @@
-from fastapi import FastAPI, Request, HTTPException
-import os, json, asyncpg
-import httpx, docker, asyncio, uuid, structlog
+import asyncio
+import json
+import os
+import uuid
+
+import asyncpg
+import docker
+import httpx
+import structlog
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
 logger = structlog.get_logger()
-
-from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI(title="Agent Gateway (label-discover)")
 
@@ -16,13 +22,13 @@ PG_PASSWORD = os.getenv("PG_PASSWORD", "agent")
 DB_POOL: asyncpg.Pool | None = None
 
 client = docker.DockerClient.from_env()
-AGENTS = {} # name -> target URL
+AGENTS = {}  # name -> target URL
+
 
 def refresh_agents():
     global AGENTS
     AGENTS = {}
-    for c in client.containers.list(
-            filters={"label": "agent.enabled=true"}):
+    for c in client.containers.list(filters={"label": "agent.enabled=true"}):
 
         name = c.labels.get("com.docker.compose.service", c.name)
 
@@ -30,7 +36,9 @@ def refresh_agents():
         AGENTS[name] = f"http://{name}:{port}/invoke"
     logger.info("discovered_agents", agents=AGENTS)
 
+
 refresh_agents()
+
 
 # background watcher (optional)
 @app.on_event("startup")
@@ -61,7 +69,8 @@ async def init_db():
         return
     # Create extension/table if absent (idempotent)
     async with DB_POOL.acquire() as conn:
-        await conn.execute("""
+        await conn.execute(
+            """
         CREATE EXTENSION IF NOT EXISTS "pgcrypto";
         CREATE TABLE IF NOT EXISTS audit_log (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -75,15 +84,20 @@ async def init_db():
           payload JSONB,
           error_msg TEXT
         );
-        """)
+        """
+        )
+
 
 @app.on_event("startup")
 async def watch_docker():
     loop = asyncio.get_event_loop()
+
     def _watch():
         for _ in client.events(decode=True):
             refresh_agents()
+
     loop.run_in_executor(None, _watch)
+
 
 @app.get("/{agent}/docs", response_class=HTMLResponse)
 async def proxy_docs(agent: str):
@@ -129,7 +143,10 @@ async def proxy(agent: str, request: Request):
         await DB_POOL.execute(
             """INSERT INTO audit_log (user_token, thread_id, actor, action, resource, status_code, payload)
                  VALUES ($1,$2,'gateway','invoke_request',$3,0,$4)""",
-            auth, thread_id, f"{agent}/invoke", json.dumps(payload)
+            auth,
+            thread_id,
+            f"{agent}/invoke",
+            json.dumps(payload),
         )
 
     async with httpx.AsyncClient() as cli:
@@ -146,7 +163,11 @@ async def proxy(agent: str, request: Request):
                 await DB_POOL.execute(
                     """INSERT INTO audit_log (user_token, thread_id, actor, action, resource, status_code, payload, error_msg)
                          VALUES ($1,$2,$3,'invoke_response',$4,500,NULL,$5)""",
-                    auth, thread_id, agent, f"{agent}/invoke", str(e)
+                    auth,
+                    thread_id,
+                    agent,
+                    f"{agent}/invoke",
+                    str(e),
                 )
             raise
 
@@ -169,6 +190,7 @@ async def proxy(agent: str, request: Request):
 
     return resp_json
 
+
 @app.get("/agents")
 async def list_agents():
     """Return the names of every discoverable agent.
@@ -179,6 +201,7 @@ async def list_agents():
     refresh_agents()
     return {"agents": list(AGENTS.keys())}
 
+
 @app.get("/agents/{agent}")
 async def agent_detail(agent: str):
     if agent not in AGENTS:
@@ -187,7 +210,7 @@ async def agent_detail(agent: str):
         r = await cli.get(f"http://{agent}:8000/metadata", timeout=10)
     return r.json()
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "agents": list(AGENTS.keys())}
-
