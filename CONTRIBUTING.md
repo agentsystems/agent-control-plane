@@ -4,6 +4,25 @@ This document explains **how to cut a new Docker image release** for the Gateway
 
 ---
 
+## 0 – Dev environment setup
+
+```bash
+# 1. (optional) create virtualenv
+python -m venv .venv && source .venv/bin/activate
+
+# 2. install dev dependencies and git hooks
+pip install -r requirements-dev.txt
+pre-commit install
+```
+
+Running `git commit` now triggers ruff, black, shellcheck, hadolint, etc.  You can lint the whole repo with:
+
+```bash
+pre-commit run --all-files
+```
+
+---
+
 ## 1 – Prerequisites
 
 | Requirement | Why it is needed |

@@ -53,7 +53,7 @@ cd agent-platform-deployments
 make up    # gateway + Postgres + hello-world-agent
 ```
 
-• Swagger: <http://localhost:18080/hello-world-agent/docs>  
+• Swagger: <http://localhost:18080/hello-world-agent/docs>
 • List agents: `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
 
 ---
@@ -175,8 +175,8 @@ cd agent-platform-deployments
 make up        # docker compose up -d (gateway + Postgres + example agent)
 ```
 
-Browse:  
-• Gateway Swagger UI → <http://localhost:18080/hello-world-agent/docs>  
+Browse:
+• Gateway Swagger UI → <http://localhost:18080/hello-world-agent/docs>
 • List agents        → `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
 
 ## Local development (hot reload)
@@ -289,7 +289,7 @@ docker compose up -d                  # start stack (detached)
 curl http://localhost:18080/agents     # → {"agents":[ ... ]}
 ```
 
-Swagger for any agent:  
+Swagger for any agent:
 <http://localhost:18080/my_agent/docs>
 
 
@@ -352,7 +352,7 @@ curl -X POST http://localhost:18080/my_fourth_agent \
 
 
 
- + label discovery (`/gateway`)  
-Agents   → FastAPI apps in `my_*_agent/`, read their own `agent.yaml`  
+ + label discovery (`/gateway`)
+Agents   → FastAPI apps in `my_*_agent/`, read their own `agent.yaml`
 Labels   → `agent.enabled=true` & `agent.port=8000` tell the gateway to route
 -->

@@ -23,7 +23,7 @@ PLATFORM=""
 
 function usage() {
   cat <<EOF
-Usage: 
+Usage:
   $(basename "$0") [--version <ver>] [--push] [--image <name>] [--dockerfile <path>] [--context <dir>] [--platform <list>] [--help]
 
 Options:
