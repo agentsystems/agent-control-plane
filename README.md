@@ -88,6 +88,20 @@ If you built a custom image, update the tag in your Compose / Helm manifests (`a
 
 ## Configuration
 
+## Continuous Integration (GitHub Actions)
+
+Every pull request triggers `ci.yml` which now performs:
+
+1. Pre-commit hooks (ruff, black, shellcheck, hadolint).
+2. `docker build` of the gateway image.
+3. Run the container on `localhost:8800` (internal port 8080).
+4. Poll `http://localhost:8800/health` (30 × 2 s) and fail if not **200 OK**.
+5. Always remove the container in a cleanup step.
+
+The gateway detects when the host Docker socket is absent (e.g. CI) and gracefully disables agent discovery, emitting the log line `docker_unavailable`. The health endpoint still reports **OK**, so the build remains deterministic.
+
+---
+
 ### Environment variables (excerpt)
 
 | Var | Default | Purpose |
