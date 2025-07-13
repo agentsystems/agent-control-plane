@@ -22,3 +22,22 @@ jobs:
 
       - name: Run pre-commit (all files)
         run: pre-commit run --all-files --show-diff-on-failure
+
+      - name: Build gateway image
+        run: docker build -t agent-control-plane .
+
+      - name: Run gateway container
+        run: docker run -d -p 8800:8080 --name acp-test agent-control-plane
+
+      - name: Wait for /health to return 200
+        run: |
+          for i in {1..30}; do
+            if curl -fs http://localhost:8800/health >/dev/null; then
+              echo "Gateway healthy"; exit 0; fi
+            sleep 2
+          done
+          echo "Gateway health check failed" && docker logs acp-test && exit 1
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f acp-test || true
