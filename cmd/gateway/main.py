@@ -21,13 +21,21 @@ PG_USER = os.getenv("PG_USER", "agent")
 PG_PASSWORD = os.getenv("PG_PASSWORD", "agent")
 DB_POOL: asyncpg.Pool | None = None
 
-client = docker.DockerClient.from_env()
+try:
+    client = docker.DockerClient.from_env()
+except Exception as e:
+    logger.warning("docker_unavailable", error=str(e))
+    client = None
+
 AGENTS = {}  # name -> target URL
 
 
 def refresh_agents():
     global AGENTS
     AGENTS = {}
+    if client is None:
+        logger.info("skip_agent_discovery_docker_unavailable")
+        return
     for c in client.containers.list(filters={"label": "agent.enabled=true"}):
 
         name = c.labels.get("com.docker.compose.service", c.name)
@@ -90,6 +98,8 @@ async def init_db():
 
 @app.on_event("startup")
 async def watch_docker():
+    if client is None:
+        return
     loop = asyncio.get_event_loop()
 
     def _watch():
