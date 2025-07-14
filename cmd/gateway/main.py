@@ -379,5 +379,6 @@ async def post_progress(thread_id: str, request: Request):
 # ----------------------------------------------------------------------------
 
 
+@app.get("/health")
 async def health():
     return {"status": "ok", "agents": list(AGENTS.keys())}
