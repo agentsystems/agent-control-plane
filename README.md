@@ -311,7 +311,7 @@ Swagger for any agent:
 
 
 ```bash
-curl -X POST http://localhost:18080/my_agent \
+curl -X POST http://localhost:18080/invoke/my_agent \
      -H "Content-Type: application/json" \
      -d '{"today":"2025-06-13"}'
 ```
@@ -357,7 +357,7 @@ Then:
 docker compose build my_fourth_agent
 docker compose up -d my_fourth_agent
 curl http://localhost:18080/agents          # now lists my_fourth_agent
-curl -X POST http://localhost:18080/my_fourth_agent \
+curl -X POST http://localhost:18080/invoke/my_fourth_agent \
      -H "Content-Type: application/json" \
      -d '{"today":"2025-06-13"}'
 ```
