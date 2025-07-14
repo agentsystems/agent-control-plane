@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 import uuid
 
@@ -155,77 +154,6 @@ async def proxy_openapi(agent: str):
         return JSONResponse(content=r.json(), status_code=r.status_code)
 
 
-@app.post("/{agent}")
-async def proxy(agent: str, request: Request):
-    """Forward an invocation to the target agent.
-
-    Requirements:
-    • Request must include header `Authorization: Bearer <token>` (value not yet validated).
-    • Gateway generates a `thread_id` (uuid4) and forwards it via header so
-      agent can echo it back.
-    """
-    if agent not in AGENTS:
-        return {"error": "unknown agent"}
-
-    if not (auth := request.headers.get("Authorization", "")).startswith("Bearer "):
-        return {"error": "missing or invalid Authorization bearer token"}
-
-    payload = await request.json()
-    thread_id = str(uuid.uuid4())
-
-    # audit: request
-    if DB_POOL:
-        await DB_POOL.execute(
-            """INSERT INTO audit_log (user_token, thread_id, actor, action, resource, status_code, payload)
-                 VALUES ($1,$2,'gateway','invoke_request',$3,0,$4)""",
-            auth,
-            thread_id,
-            f"{agent}/invoke",
-            json.dumps(payload),
-        )
-
-    async with httpx.AsyncClient() as cli:
-        try:
-            r = await cli.post(
-                AGENTS[agent],
-                json=payload,
-                headers={"X-Thread-Id": thread_id},
-                timeout=30,
-            )
-            resp_json = r.json()
-        except Exception as e:
-            if DB_POOL:
-                await DB_POOL.execute(
-                    """INSERT INTO audit_log (user_token, thread_id, actor, action, resource, status_code, payload, error_msg)
-                         VALUES ($1,$2,$3,'invoke_response',$4,500,NULL,$5)""",
-                    auth,
-                    thread_id,
-                    agent,
-                    f"{agent}/invoke",
-                    str(e),
-                )
-            raise
-
-    # Ensure thread_id is present in response for clients
-    if "thread_id" not in resp_json:
-        resp_json["thread_id"] = thread_id
-
-    # audit: response
-    if DB_POOL:
-        await DB_POOL.execute(
-            """INSERT INTO audit_log (user_token, thread_id, actor, action, resource, status_code, payload)
-                 VALUES ($1,$2,$3,'invoke_response',$4,$5,$6)""",
-            auth,
-            thread_id,
-            agent,
-            f"{agent}/invoke",
-            r.status_code,
-            json.dumps(resp_json),
-        )
-
-    return resp_json
-
-
 @app.get("/agents")
 async def list_agents():
     """Return the names of every discoverable agent.
@@ -310,10 +238,54 @@ async def invoke_async(agent: str, request: Request):
         raise HTTPException(status_code=400, detail="missing bearer token")
 
     payload = await request.json()
-    thread_id = str(uuid.uuid4())
+    # Extract optional sync flag; default False (async)
+    sync_flag = bool(payload.pop("sync", False))
 
+    thread_id = str(uuid.uuid4())
     await _insert_job_row(thread_id, agent, auth)
 
+    async def _run_invocation():
+        async with httpx.AsyncClient() as cli:
+            return await cli.post(
+                AGENTS[agent],
+                json=payload,
+                headers={"X-Thread-Id": thread_id},
+                timeout=60,
+            )
+
+    # ------------------------------------------------------------------
+    # SYNC mode: run inline and return full agent response immediately
+    # ------------------------------------------------------------------
+    if sync_flag:
+        await _update_job_record(
+            thread_id,
+            state=INV_STATE_RUNNING,
+            started_at=datetime.datetime.utcnow().isoformat(),
+        )
+        try:
+            r = await _run_invocation()
+            resp_json = r.json()
+            await _update_job_record(
+                thread_id,
+                state=INV_STATE_COMPLETED,
+                ended_at=datetime.datetime.utcnow().isoformat(),
+                result=resp_json,
+            )
+            # Ensure thread id for compatibility
+            resp_json.setdefault("thread_id", thread_id)
+            return resp_json
+        except Exception as e:
+            await _update_job_record(
+                thread_id,
+                state=INV_STATE_FAILED,
+                ended_at=datetime.datetime.utcnow().isoformat(),
+                error={"message": str(e)},
+            )
+            raise
+
+    # ------------------------------------------------------------------
+    # ASYNC mode (default): fire worker and return handle
+    # ------------------------------------------------------------------
     async def _worker():
         await _update_job_record(
             thread_id,
