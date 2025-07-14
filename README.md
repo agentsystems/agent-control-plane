@@ -310,10 +310,22 @@ Swagger for any agent:
 
 
 
+Invoke an agent and poll status until it completes:
+
 ```bash
-curl -X POST http://localhost:18080/invoke/my_agent \
+# 1. Start the job (returns thread_id and helper URLs)
+resp=$(curl -s -X POST http://localhost:18080/invoke/my_agent \
      -H "Content-Type: application/json" \
-     -d '{"today":"2025-06-13"}'
+     -d '{"today":"2025-06-13"}')
+thread_id=$(echo "$resp" | jq -r .thread_id)
+
+# 2. Poll lightweight status endpoint (state + progress only)
+curl -s http://localhost:18080/status/$thread_id | jq .
+# { "state": "running", "progress": { ... } }
+
+# 3. Fetch the final result when state == completed
+curl -s http://localhost:18080/result/$thread_id | jq .
+# { "result": { ... } }
 ```
 
 

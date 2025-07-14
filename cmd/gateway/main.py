@@ -318,12 +318,14 @@ async def invoke_async(agent: str, request: Request):
 
     return {
         "thread_id": thread_id,
-        "status_url": f"/result/{thread_id}",
+        "status_url": f"/status/{thread_id}",
+        "result_url": f"/result/{thread_id}",
     }
 
 
-@app.get("/result/{thread_id}")
-async def get_result(thread_id: str):
+@app.get("/status/{thread_id}")
+async def get_status(thread_id: str):
+    """Lightweight polling endpoint – returns state & progress only."""
     job = await _get_job(thread_id)
     if not job:
         raise HTTPException(status_code=404, detail="unknown thread_id")
@@ -331,6 +333,18 @@ async def get_result(thread_id: str):
         "thread_id": thread_id,
         "state": job.get("state"),
         "progress": job.get("progress"),
+        "error": job.get("error"),
+    }
+
+
+@app.get("/result/{thread_id}")
+async def get_result(thread_id: str):
+    """Return final result payload – large artefacts allowed."""
+    job = await _get_job(thread_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown thread_id")
+    return {
+        "thread_id": thread_id,
         "result": job.get("result"),
         "error": job.get("error"),
     }
