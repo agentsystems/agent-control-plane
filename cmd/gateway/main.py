@@ -7,10 +7,21 @@ import asyncpg
 import docker
 import httpx
 import structlog
+import datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 logger = structlog.get_logger()
+
+# ----------------------------------------------------------------------------
+# Async invocation job store (DB-backed, falls back to in-memory dict).
+# ----------------------------------------------------------------------------
+JOBS: dict[str, dict] = {}  # thread_id -> record when DB unavailable
+
+INV_STATE_QUEUED = "queued"
+INV_STATE_RUNNING = "running"
+INV_STATE_COMPLETED = "completed"
+INV_STATE_FAILED = "failed"
 
 app = FastAPI(title="Agent Gateway (label-discover)")
 
@@ -91,6 +102,20 @@ async def init_db():
           status_code SMALLINT NOT NULL,
           payload JSONB,
           error_msg TEXT
+        );
+
+        -- async invocation tracking (simple for now; progress/result as JSONB)
+        CREATE TABLE IF NOT EXISTS invocations (
+          thread_id UUID PRIMARY KEY,
+          agent TEXT NOT NULL,
+          user_token TEXT NOT NULL,
+          state TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          started_at TIMESTAMPTZ,
+          ended_at TIMESTAMPTZ,
+          result JSONB,
+          error JSONB,
+          progress JSONB
         );
         """
         )
@@ -219,6 +244,139 @@ async def agent_detail(agent: str):
     async with httpx.AsyncClient() as cli:
         r = await cli.get(f"http://{agent}:8000/metadata", timeout=10)
     return r.json()
+
+
+# ----------------------------------------------------------------------------
+# Async invocation endpoints
+# ----------------------------------------------------------------------------
+
+
+async def _update_job_record(thread_id: str, **fields):
+    """Helper to update a job row in DB or in-memory store."""
+    if DB_POOL:
+        sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(fields))
+        await DB_POOL.execute(
+            f"UPDATE invocations SET {sets} WHERE thread_id = $1",
+            thread_id,
+            *fields.values(),
+        )
+    else:
+        JOBS.setdefault(thread_id, {}).update(fields)
+
+
+async def _insert_job_row(thread_id: str, agent: str, user_token: str):
+    if DB_POOL:
+        await DB_POOL.execute(
+            """
+            INSERT INTO invocations (thread_id, agent, user_token, state)
+            VALUES ($1,$2,$3,$4)
+            """,
+            thread_id,
+            agent,
+            user_token,
+            INV_STATE_QUEUED,
+        )
+    else:
+        JOBS[thread_id] = {
+            "thread_id": thread_id,
+            "agent": agent,
+            "user_token": user_token,
+            "state": INV_STATE_QUEUED,
+            "created_at": asyncio.get_event_loop().time(),
+        }
+
+
+async def _get_job(thread_id: str):
+    if DB_POOL:
+        row = await DB_POOL.fetchrow(
+            "SELECT * FROM invocations WHERE thread_id=$1", thread_id
+        )
+        return dict(row) if row else None
+    return JOBS.get(thread_id)
+
+
+@app.post("/invoke/{agent}")
+async def invoke_async(agent: str, request: Request):
+    """Async-first invocation.
+
+    Returns immediately with thread_id and status URL. A background task will
+    forward the call to the target agent and persist the result.
+    """
+    if agent not in AGENTS:
+        raise HTTPException(status_code=404, detail="unknown agent")
+
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=400, detail="missing bearer token")
+
+    payload = await request.json()
+    thread_id = str(uuid.uuid4())
+
+    await _insert_job_row(thread_id, agent, auth)
+
+    async def _worker():
+        await _update_job_record(
+            thread_id,
+            state=INV_STATE_RUNNING,
+            started_at=datetime.datetime.utcnow().isoformat(),
+        )
+        async with httpx.AsyncClient() as cli:
+            try:
+                r = await cli.post(
+                    AGENTS[agent],
+                    json=payload,
+                    headers={"X-Thread-Id": thread_id},
+                    timeout=60,
+                )
+                await _update_job_record(
+                    thread_id,
+                    state=INV_STATE_COMPLETED,
+                    ended_at=datetime.datetime.utcnow().isoformat(),
+                    result=r.json(),
+                )
+            except Exception as e:
+                await _update_job_record(
+                    thread_id,
+                    state=INV_STATE_FAILED,
+                    ended_at=datetime.datetime.utcnow().isoformat(),
+                    error={"message": str(e)},
+                )
+
+    asyncio.create_task(_worker())
+
+    return {
+        "thread_id": thread_id,
+        "status_url": f"/result/{thread_id}",
+    }
+
+
+@app.get("/result/{thread_id}")
+async def get_result(thread_id: str):
+    job = await _get_job(thread_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown thread_id")
+    return {
+        "thread_id": thread_id,
+        "state": job.get("state"),
+        "progress": job.get("progress"),
+        "result": job.get("result"),
+        "error": job.get("error"),
+    }
+
+
+@app.post("/progress/{thread_id}")
+async def post_progress(thread_id: str, request: Request):
+    body = await request.json()
+    if "progress" not in body:
+        raise HTTPException(status_code=400, detail="missing progress field")
+    job = await _get_job(thread_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown thread_id")
+    await _update_job_record(thread_id, progress=body["progress"])
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------------------
 
 
 @app.get("/health")
