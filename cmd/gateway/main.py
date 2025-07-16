@@ -3,6 +3,7 @@ import os
 import uuid
 
 import asyncpg
+import threading
 import docker
 import httpx
 import structlog
@@ -38,20 +39,26 @@ except Exception as e:
     client = None
 
 AGENTS = {}  # name -> target URL
+AGENT_LOCK = threading.Lock()
 
 
 def refresh_agents():
+    """Discover agent containers and update the in-memory cache atomically."""
     global AGENTS
-    AGENTS = {}
     if client is None:
         logger.info("skip_agent_discovery_docker_unavailable")
         return
+
+    discovered: dict[str, str] = {}
     for c in client.containers.list(filters={"label": "agent.enabled=true"}):
-
         name = c.labels.get("com.docker.compose.service", c.name)
-
         port = c.labels.get("agent.port", "8000")
-        AGENTS[name] = f"http://{name}:{port}/invoke"
+        discovered[name] = f"http://{name}:{port}/invoke"
+
+    # Atomic swap under a lock to avoid readers seeing a partially built dict
+    with AGENT_LOCK:
+        AGENTS = discovered
+
     logger.info("discovered_agents", agents=AGENTS)
 
 
