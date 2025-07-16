@@ -372,6 +372,24 @@ async def post_progress(thread_id: str, request: Request):
 # ----------------------------------------------------------------------------
 
 
+@app.on_event("shutdown")
+async def _graceful_shutdown():
+    """Ensure DB pool and Docker client are closed on application shutdown."""
+    global DB_POOL
+    if DB_POOL is not None:
+        try:
+            await DB_POOL.close()
+            logger.info("db_pool_closed")
+        except Exception as e:
+            logger.warning("db_pool_close_failed", error=str(e))
+    if client is not None:
+        try:
+            client.close()
+            logger.info("docker_client_closed")
+        except Exception as e:
+            logger.warning("docker_client_close_failed", error=str(e))
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "agents": list(AGENTS.keys())}
