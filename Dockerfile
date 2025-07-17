@@ -1,7 +1,7 @@
 # Agent Control Plane Gateway Image
 # Builds the FastAPI gateway located in ./gateway
 
-FROM python:3.12-slim AS base
+FROM python:3.13-slim AS base
 
 # Install OS-level deps (none for now)
 
