@@ -1,6 +1,6 @@
 # Agent Control Plane
 
-[![codecov](https://codecov.io/gh/agentsystems/agent-control-plane/graph/badge.svg?token=C8QBKRD06Z)](https://codecov.io/gh/agentsystems/agent-control-plane)
+[![CI](https://github.com/agentsystems/agent-control-plane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/agentsystems/agent-control-plane/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/agentsystems/agent-control-plane/graph/badge.svg?token=C8QBKRD06Z)](https://codecov.io/gh/agentsystems/agent-control-plane)
 
 The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer that fronts every AgentSystems deployment.
 
