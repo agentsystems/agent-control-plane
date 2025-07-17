@@ -23,6 +23,13 @@ jobs:
       - name: Run pre-commit (all files)
         run: pre-commit run --all-files --show-diff-on-failure
 
+      - name: Install test dependencies
+        run: |
+          pip install -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: pytest --cov --cov-branch
+
       - name: Build gateway image
         run: docker build -t agent-control-plane .
 

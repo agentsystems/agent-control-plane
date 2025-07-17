@@ -1,1 +1,8 @@
 pre-commit
+pytest>=8
+pytest-cov
+fastapi
+asyncpg
+docker
+structlog
+httpx
