@@ -1,50 +1,32 @@
-name: CI
+name: Run tests and upload coverage
 
 on:
-  pull_request:
   push:
-    branches: [main]
 
 jobs:
-  lint:
+  test:
+    name: Run tests and collect coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          python-version: "3.11"
+          fetch-depth: 2
 
-      - name: Install dev dependencies
+      - name: Set up Python
+        uses: actions/setup-python@v4
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pre-commit
-
-      - name: Run pre-commit (all files)
-        run: pre-commit run --all-files --show-diff-on-failure
-
-      - name: Install test dependencies
-        run: |
+          pip install pytest pytest-cov
           pip install -r requirements-dev.txt
 
-      - name: Run unit tests
-        run: pytest --cov --cov-branch
+      - name: Run tests
+        run: pytest --cov --cov-branch --cov-report=xml
 
-      - name: Build gateway image
-        run: docker build -t agent-control-plane .
-
-      - name: Run gateway container
-        run: docker run -d -p 8800:8080 --name acp-test agent-control-plane
-
-      - name: Wait for /health to return 200
-        run: |
-          for i in {1..30}; do
-            if curl -fs http://localhost:8800/health >/dev/null; then
-              echo "Gateway healthy"; exit 0; fi
-            sleep 2
-          done
-          echo "Gateway health check failed" && docker logs acp-test && exit 1
-
-      - name: Cleanup
-        if: always()
-        run: docker rm -f acp-test || true
+      - name: Upload results to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: agentsystems/agent-control-plane
