@@ -23,3 +23,6 @@ build/
 
 # Docker files
 *.tar
+
+.coverage
+.coverage.*
