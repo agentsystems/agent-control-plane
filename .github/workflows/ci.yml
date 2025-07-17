@@ -7,6 +7,7 @@ on:
 
 jobs:
   lint:
+    name: Pre-commit & Docker smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,13 +23,6 @@ jobs:
 
       - name: Run pre-commit (all files)
         run: pre-commit run --all-files --show-diff-on-failure
-
-      - name: Install test dependencies
-        run: |
-          pip install -r requirements-dev.txt
-
-      - name: Run unit tests
-        run: pytest --cov --cov-branch
 
       - name: Build gateway image
         run: docker build -t agent-control-plane .
@@ -48,3 +42,30 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f acp-test || true
+
+  tests:
+    name: Run tests and collect coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest --cov --cov-branch --cov-report=xml
+
+      - name: Upload results to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: agentsystems/agent-control-plane
