@@ -18,7 +18,7 @@ COPY cmd /app/cmd
 # -----------------------------------------------------------------------------
 # Final stage – minimal, non-root image
 # -----------------------------------------------------------------------------
-FROM gcr.io/distroless/python3:3.13
+FROM cgr.dev/chainguard/python:3.13
 
 ENV PYTHONUNBUFFERED=1
 
