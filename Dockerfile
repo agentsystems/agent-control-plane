@@ -34,4 +34,4 @@ EXPOSE 8080
 RUN adduser --disabled-password --gecos "" appuser
 USER appuser
 
-CMD ["uvicorn", "cmd.gateway.main:app", "--host=0.0.0.0", "--port=${ACP_BIND_PORT:-8080}"]
+CMD ["sh", "-c", "uvicorn cmd.gateway.main:app --host 0.0.0.0 --port ${ACP_BIND_PORT:-8080}"]
