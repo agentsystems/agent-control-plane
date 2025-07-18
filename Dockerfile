@@ -18,7 +18,7 @@ COPY cmd /app/cmd
 # -----------------------------------------------------------------------------
 # Final stage – minimal, non-root image
 # -----------------------------------------------------------------------------
-FROM cgr.dev/chainguard/python:latest
+FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1
 
@@ -30,7 +30,8 @@ COPY --from=builder /app/cmd /app/cmd
 
 EXPOSE 8080
 
-# Distroless images run as "nonroot" (UID 65532) by default
-USER nonroot
+# Create dedicated non-root user for runtime security
+RUN adduser --disabled-password --gecos "" appuser
+USER appuser
 
 CMD ["uvicorn", "cmd.gateway.main:app", "--host=0.0.0.0", "--port=${ACP_BIND_PORT:-8080}"]
