@@ -4,7 +4,7 @@
 # -----------------------------------------------------------------------------
 # Builder stage – install Python deps into a temporary layer
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim AS builder
+FROM python:3.12-slim@sha256:4600f71648e110b005bf7bca92dbb335e549e6b27f2e83fceee5e11b3e1a4d01 AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ COPY cmd /app/cmd
 # -----------------------------------------------------------------------------
 # Final stage – minimal, non-root image
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:4600f71648e110b005bf7bca92dbb335e549e6b27f2e83fceee5e11b3e1a4d01
 
 ENV PYTHONUNBUFFERED=1
 

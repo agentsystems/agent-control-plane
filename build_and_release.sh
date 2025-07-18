@@ -104,7 +104,12 @@ fi
 export DOCKER_BUILDKIT=${DOCKER_BUILDKIT:-1}
 
 # -------- build -----------------------------------------------------------
-BUILD_CMD=(docker buildx build "${TAG_ARGS[@]}" --platform "$PLATFORM" -f "$DOCKERFILE" "$CONTEXT")
+BUILD_ARGS=()
+if [[ "$PUSH" == "true" ]]; then
+  BUILD_ARGS=(--sbom=true --provenance=true)
+fi
+
+BUILD_CMD=(docker buildx build "${BUILD_ARGS[@]}" "${TAG_ARGS[@]}" --platform "$PLATFORM" -f "$DOCKERFILE" "$CONTEXT")
 [[ "$PUSH" == "true" ]] && BUILD_CMD+=(--push) || BUILD_CMD+=(--load)
 
 echo "# ------------------------------------------------------------"
