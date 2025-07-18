@@ -18,9 +18,11 @@ repos:
         language_version: python3.11
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.9.0.1
+    # v0.9.0.5 ships pre-built wheels for Python 3.12, avoiding source builds
+    rev: v0.9.0.5
     hooks:
       - id: shellcheck
+        language_version: python3
 
   - repo: https://github.com/hadolint/hadolint
     rev: v2.12.0
