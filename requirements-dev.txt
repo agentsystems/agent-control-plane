@@ -6,3 +6,5 @@ asyncpg
 docker
 structlog
 httpx
+alembic
+SQLAlchemy
