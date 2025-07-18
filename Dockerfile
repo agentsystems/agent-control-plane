@@ -18,7 +18,7 @@ COPY cmd /app/cmd
 # -----------------------------------------------------------------------------
 # Final stage – minimal, non-root image
 # -----------------------------------------------------------------------------
-FROM cgr.dev/chainguard/python:3.12
+FROM cgr.dev/chainguard/python:latest
 
 ENV PYTHONUNBUFFERED=1
 
