@@ -30,8 +30,10 @@ COPY --from=builder /app/cmd /app/cmd
 
 EXPOSE 8080
 
-# Create dedicated non-root user for runtime security
+# Non-root user is created for future use, but we run as root so the gateway
+# can access /var/run/docker.sock for container discovery. Revisit once we
+# have a rootless Docker API solution.
 RUN adduser --disabled-password --gecos "" appuser
-USER appuser
+# USER appuser
 
 CMD ["sh", "-c", "uvicorn cmd.gateway.main:app --host 0.0.0.0 --port ${ACP_BIND_PORT:-8080}"]
