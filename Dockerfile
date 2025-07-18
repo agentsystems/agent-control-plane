@@ -4,7 +4,7 @@
 # -----------------------------------------------------------------------------
 # Builder stage – install Python deps into a temporary layer
 # -----------------------------------------------------------------------------
-FROM python:3.13-slim AS builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ COPY cmd /app/cmd
 # -----------------------------------------------------------------------------
 # Final stage – minimal, non-root image
 # -----------------------------------------------------------------------------
-FROM cgr.dev/chainguard/python:3.13
+FROM cgr.dev/chainguard/python:3.12
 
 ENV PYTHONUNBUFFERED=1
 
