@@ -62,7 +62,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Validate DB migrations
-        run: alembic upgrade head --sql -
+        run: alembic upgrade --sql head
 
       - name: Run tests
         run: pytest --cov --cov-branch --cov-report=xml
