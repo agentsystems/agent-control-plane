@@ -28,7 +28,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build gateway image (SBOM & provenance)
-        run: docker buildx build --sbom=true --provenance=true --platform linux/amd64 --load -t agent-control-plane .
+        run: docker buildx build --platform linux/amd64 --load -t agent-control-plane .
 
       - name: Scan image with Trivy (non-blocking)
         uses: aquasecurity/trivy-action@0.19.0
