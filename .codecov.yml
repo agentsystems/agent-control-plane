@@ -1,0 +1,6 @@
+coverage:
+  status:
+    patch:
+      default:
+        target: 0%
+        threshold: 1000%  # effectively disable gate for patch

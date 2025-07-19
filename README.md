@@ -24,7 +24,7 @@ The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer th
 ```mermaid
 graph LR
   C((Client)) -- 18080 --> G[Gateway]
-  subgraph "agents-net"
+  subgraph "agents-int"
     G -- 8080 --> A1((hello-world-agent))
     G --> A2((your-agent))
   end
@@ -162,7 +162,7 @@ This repository contains the **gateway runtime** and libraries that power the Ag
 ```mermaid
 graph LR
   client((Client)) -- 18080 --> gateway[Gateway]
-  subgraph "Docker network: agents-net"
+  subgraph "Docker network: agents-int"
     gateway -- 8080 --> agent1((some-agent))
     gateway --> agent2((another-agent))
   end
@@ -170,7 +170,7 @@ graph LR
   gateway --> lf[Langfuse]
 ```
 
-1. **Gateway** discovers containers on the `agents-net` network via Docker/Kubernetes labels `agent.enabled=true` and `agent.port=<port>`.
+1. **Gateway** discovers containers on the `agents-int` internal network via Docker/Kubernetes labels `agent.enabled=true` and `agent.port=<port>`.
 2. Requests are authenticated (Bearer token placeholder for now) and forwarded to the agent container.
 3. Each round-trip is appended to the **audit** table (hash-chained rows) and optionally mirrored to Langfuse.
 
