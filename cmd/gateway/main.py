@@ -6,6 +6,10 @@ import asyncpg
 import threading
 import docker
 import httpx
+import fnmatch
+from urllib.parse import urlparse
+import re
+import yaml
 import structlog
 import datetime
 from fastapi import FastAPI, HTTPException, Request
@@ -40,6 +44,56 @@ except Exception as e:
 
 AGENTS = {}  # name -> target URL
 AGENT_LOCK = threading.Lock()
+# Map container IP -> agent name for proxy enforcement without headers
+AGENT_IP_MAP: dict[str, str] = {}
+
+# ---------------------------------------------------------------------------
+# Proxy settings
+PROXY_PORT = int(os.getenv("ACP_PROXY_PORT", "3128"))
+PROXY_SERVER: asyncio.base_events.Server | None = None
+
+# Outbound egress allowlist per agent (loaded from agentsystems-config.yml)
+# ---------------------------------------------------------------------------
+CONFIG_PATH = os.getenv(
+    "AGENTSYSTEMS_CONFIG_PATH", "/etc/agentsystems/agentsystems-config.yml"
+)
+EGRESS_ALLOWLIST: dict[str, list[str]] = {}
+
+
+def _load_egress_allowlist(path: str) -> None:
+    """Populate EGRESS_ALLOWLIST from YAML if present."""
+    global EGRESS_ALLOWLIST
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw = yaml.safe_load(fh) or {}
+    except FileNotFoundError:
+        logger.warning("config_not_found", path=path)
+        return
+    except Exception as e:
+        logger.warning("config_read_failed", error=str(e))
+        return
+
+    allowlist: dict[str, list[str]] = {}
+    for agent in raw.get("agents", []):
+        name = agent.get("name")
+        patterns = agent.get("egress_allowlist", []) or []
+        if name:
+            allowlist[name] = patterns
+    EGRESS_ALLOWLIST = allowlist
+    logger.info("egress_allowlist_loaded", entries=len(EGRESS_ALLOWLIST))
+
+
+def _is_allowed(agent: str, url: str) -> bool:
+    patterns = EGRESS_ALLOWLIST.get(agent, [])
+    if not patterns:
+        return False
+
+    host = urlparse(url).hostname or ""
+    for pat in patterns:
+        # Allow matching on full URL or just hostname
+        if fnmatch.fnmatch(url, pat) or fnmatch.fnmatch(host, pat):
+            return True
+    return False
 
 
 def refresh_agents():
@@ -50,24 +104,197 @@ def refresh_agents():
         return
 
     discovered: dict[str, str] = {}
+    ip_map: dict[str, str] = {}
     for c in client.containers.list(filters={"label": "agent.enabled=true"}):
         name = c.labels.get("com.docker.compose.service", c.name)
         port = c.labels.get("agent.port", "8000")
         discovered[name] = f"http://{name}:{port}/invoke"
+        # Capture container IPv4 (first network entry)
+        try:
+            net_info = next(
+                iter(c.attrs.get("NetworkSettings", {}).get("Networks", {}).values())
+            )
+            ip_addr = net_info.get("IPAddress")
+            if ip_addr:
+                ip_map[ip_addr] = name
+        except Exception:
+            pass
 
     # Atomic swap under a lock to avoid readers seeing a partially built dict
     with AGENT_LOCK:
         AGENTS = discovered
+        global AGENT_IP_MAP
+        AGENT_IP_MAP = ip_map
 
     logger.info("discovered_agents", agents=AGENTS)
 
 
 refresh_agents()
 
+# ---------------------------------------------------------------------------
+# Forward proxy implementation (HTTP/1.1 CONNECT support)
+# ---------------------------------------------------------------------------
+
+
+async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    try:
+        while True:
+            data = await reader.read(4096)
+            if not data:
+                break
+            writer.write(data)
+            await writer.drain()
+    except Exception:
+        pass
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def _handle_proxy(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    peer = writer.get_extra_info("peername")
+    peer_ip = peer[0] if peer else ""
+    agent = AGENT_IP_MAP.get(peer_ip)
+
+    try:
+        req_line_bytes = await reader.readline()
+        if not req_line_bytes:
+            writer.close()
+            await writer.wait_closed()
+            return
+        req_line = req_line_bytes.decode("latin1").rstrip("\r\n")
+        parts = req_line.split(" ")
+        if len(parts) < 3:
+            writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+            return
+        method, target, _ = parts
+
+        headers = {}
+        while True:
+            line = await reader.readline()
+            if line in {b"\r\n", b""}:
+                break
+            k, v = line.decode("latin1").rstrip("\r\n").split(":", 1)
+            headers[k.strip()] = v.strip()
+            if not agent and k.lower() == "x-agent-name":
+                agent = v.strip()
+
+        if not agent:
+            writer.write(
+                b"HTTP/1.1 400 Bad Request\r\n\r\nMissing X-Agent-Name header\r\n"
+            )
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        if method.upper() == "CONNECT":
+            host_port = target
+            m = re.match(r"([^:]+):(\d+)", host_port)
+            if not m:
+                writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+                return
+            dest_host, dest_port = m.group(1), int(m.group(2))
+            test_url = f"https://{dest_host}"
+            if not _is_allowed(agent, test_url):
+                writer.write(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+                return
+            try:
+                remote_reader, remote_writer = await asyncio.open_connection(
+                    dest_host, dest_port
+                )
+            except Exception:
+                writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+                return
+            writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            await writer.drain()
+            await asyncio.gather(
+                _pipe(reader, remote_writer),
+                _pipe(remote_reader, writer),
+            )
+            return
+        else:
+            full_url = target
+            if not _is_allowed(agent, full_url):
+                writer.write(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+                return
+
+            content_length = int(headers.get("Content-Length", "0"))
+            body = b""
+            if content_length:
+                body = await reader.readexactly(content_length)
+
+            async with httpx.AsyncClient(timeout=30) as hc:
+                try:
+                    resp = await hc.request(
+                        method, full_url, headers=headers, content=body
+                    )
+                except Exception:
+                    writer.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+                    await writer.drain()
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+
+            status_line = (
+                f"HTTP/1.1 {resp.status_code} {resp.reason_phrase}\r\n".encode()
+            )
+            writer.write(status_line)
+            for k, v in resp.headers.items():
+                if k.lower() in {"transfer-encoding", "connection", "content-encoding"}:
+                    continue
+                writer.write(f"{k}: {v}\r\n".encode())
+            writer.write(b"\r\n")
+            async for chunk in resp.aiter_bytes():
+                writer.write(chunk)
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+            return
+    except Exception:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def _start_proxy_server():
+    global PROXY_SERVER
+    PROXY_SERVER = await asyncio.start_server(
+        _handle_proxy, host="0.0.0.0", port=PROXY_PORT
+    )
+    logger.info("proxy_started", port=PROXY_PORT)
+
+
+@app.on_event("startup")
+async def _proxy_bg():
+    asyncio.create_task(_start_proxy_server())
+
 
 # background watcher (optional)
 @app.on_event("startup")
 async def init_db():
+    # Load outbound egress allowlist into memory once the app starts
+    _load_egress_allowlist(CONFIG_PATH)
     global DB_POOL
     retries = 10
     while retries:
@@ -382,12 +609,64 @@ async def _graceful_shutdown():
             logger.info("db_pool_closed")
         except Exception as e:
             logger.warning("db_pool_close_failed", error=str(e))
+    if PROXY_SERVER is not None:
+        try:
+            PROXY_SERVER.close()
+            await PROXY_SERVER.wait_closed()
+            logger.info("proxy_server_closed")
+        except Exception:
+            logger.warning("proxy_server_close_failed")
+
     if client is not None:
         try:
             client.close()
             logger.info("docker_client_closed")
         except Exception as e:
             logger.warning("docker_client_close_failed", error=str(e))
+
+
+@app.get("/debug/egress-allowlist")
+async def debug_egress_allowlist():
+    """Return the current in-memory egress allowlist."""
+    return EGRESS_ALLOWLIST
+
+
+@app.post("/egress")
+async def proxy_egress(request: Request):
+    """Forward outbound HTTP requests on behalf of an agent after allowlist check."""
+    agent_name = request.headers.get("X-Agent-Name") or AGENT_IP_MAP.get(
+        request.client.host
+    )
+    if not agent_name:
+        raise HTTPException(status_code=400, detail="missing X-Agent-Name header")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid json body")
+
+    url: str | None = body.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="url required in body")
+    method: str = body.get("method", "GET").upper()
+    payload = body.get("payload")
+
+    patterns = EGRESS_ALLOWLIST.get(agent_name, [])
+    if not patterns or not any(fnmatch.fnmatch(url, p) for p in patterns):
+        logger.warning("egress_blocked", agent=agent_name, url=url)
+        raise HTTPException(status_code=403, detail="destination not allowlisted")
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as hc:
+            resp = await hc.request(method, url, json=payload)
+    except Exception as e:
+        logger.warning("egress_upstream_error", error=str(e))
+        raise HTTPException(status_code=502, detail="upstream fetch failed")
+
+    # Basic response passthrough (status + text). In future may stream/binary.
+    return JSONResponse(
+        status_code=resp.status_code,
+        content={"status_code": resp.status_code, "body": resp.text},
+    )
 
 
 @app.get("/health")
