@@ -534,12 +534,33 @@ async def invoke_async(agent: str, request: Request):
                     headers={"X-Thread-Id": thread_id},
                     timeout=60,
                 )
-                await _update_job_record(
-                    thread_id,
-                    state=INV_STATE_COMPLETED,
-                    ended_at=datetime.datetime.utcnow().isoformat(),
-                    result=r.json(),
-                )
+                try:
+                    parsed = r.json()
+                except ValueError:
+                    # Provide clearer message when agent returns non-JSON (e.g. 403 text)
+                    parsed = None
+                if r.status_code >= 400 or parsed is None:
+                    await _update_job_record(
+                        thread_id,
+                        state=INV_STATE_FAILED,
+                        ended_at=datetime.datetime.utcnow().isoformat(),
+                        error={
+                            "status": r.status_code,
+                            "body": r.text[:500],  # truncate large bodies
+                            "message": (
+                                "agent attempted outbound request to non-allowlisted URL"
+                                if r.status_code == 403
+                                else "agent returned non-JSON or error status"
+                            ),
+                        },
+                    )
+                else:
+                    await _update_job_record(
+                        thread_id,
+                        state=INV_STATE_COMPLETED,
+                        ended_at=datetime.datetime.utcnow().isoformat(),
+                        result=parsed,
+                    )
             except Exception as e:
                 await _update_job_record(
                     thread_id,
