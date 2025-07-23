@@ -26,3 +26,5 @@ build/
 
 .coverage
 .coverage.*
+coverage.xml
+coverage.xml.*
