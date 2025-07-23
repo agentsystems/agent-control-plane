@@ -150,6 +150,12 @@ def test_ensure_agent_running_starts_container(monkeypatch, restore_globals):
     # Patch time.sleep to avoid real delay
     monkeypatch.setattr(gw.time, "sleep", lambda x: None)
 
+    # Patch httpx.get to immediately return healthy response
+    class _Resp:
+        status_code = 200
+
+    monkeypatch.setattr(gw.httpx, "get", lambda *a, **kw: _Resp())
+
     started = gw.ensure_agent_running(target)
     assert started, "Agent should be considered running after ensure-agent-running"
     assert stub_container._started, "Container.start() should be invoked"

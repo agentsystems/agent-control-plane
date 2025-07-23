@@ -181,12 +181,22 @@ def ensure_agent_running(agent: str) -> bool:
         logger.warning("agent_lazy_start_failed", agent=agent, error=str(e))
         return False
 
-    # Poll for readiness (up to 30 s)
+    # Poll for HTTP readiness (up to 30 s). We wait until the /health endpoint
+    # of the agent responds with 200 to minimise race conditions where the
+    # container is running but the application server is not yet accepting
+    # connections, which would otherwise result in httpx.ConnectError.
     for _ in range(30):
         time.sleep(1)
         refresh_agents()
         if agent in AGENTS:
-            return True
+            base_url = AGENTS[agent].rsplit("/invoke", 1)[0]
+            try:
+                r = httpx.get(f"{base_url}/health", timeout=1)
+                if r.status_code == 200:
+                    return True
+            except Exception:
+                # Not ready yet
+                pass
     logger.warning("agent_lazy_start_timeout", agent=agent)
     return False
 
