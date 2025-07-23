@@ -12,6 +12,8 @@ import re
 import yaml
 import structlog
 import datetime
+import time
+from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -58,6 +60,9 @@ CONFIG_PATH = os.getenv(
     "AGENTSYSTEMS_CONFIG_PATH", "/etc/agentsystems/agentsystems-config.yml"
 )
 EGRESS_ALLOWLIST: dict[str, list[str]] = {}
+IDLE_TIMEOUTS: dict[str, int] = {}
+LAST_SEEN: dict[str, datetime.datetime] = {}
+GLOBAL_IDLE_TIMEOUT = int(os.getenv("ACP_IDLE_TIMEOUT_MIN", "15"))
 
 
 def _load_egress_allowlist(path: str) -> None:
@@ -80,7 +85,22 @@ def _load_egress_allowlist(path: str) -> None:
         if name:
             allowlist[name] = patterns
     EGRESS_ALLOWLIST = allowlist
-    logger.info("egress_allowlist_loaded", entries=len(EGRESS_ALLOWLIST))
+    # extract per-agent idle timeout configurations
+    idle_map: dict[str, int] = {}
+    for agent in raw.get("agents", []):
+        name = agent.get("name")
+        if name and agent.get("idle_timeout") is not None:
+            try:
+                idle_map[name] = int(agent["idle_timeout"])
+            except ValueError:
+                logger.warning("config_idle_timeout_invalid", agent=name)
+    global IDLE_TIMEOUTS
+    IDLE_TIMEOUTS = idle_map
+    logger.info(
+        "config_loaded",
+        egress_entries=len(EGRESS_ALLOWLIST),
+        idle_entries=len(IDLE_TIMEOUTS),
+    )
 
 
 def _is_allowed(agent: str, url: str) -> bool:
@@ -127,6 +147,73 @@ def refresh_agents():
         AGENT_IP_MAP = ip_map
 
     logger.info("discovered_agents", agents=AGENTS)
+
+
+# ---------------------------------------------------------------------------
+# Lazy start helper and idle reaper
+# ---------------------------------------------------------------------------
+
+
+def ensure_agent_running(agent: str) -> bool:
+    """Start container if stopped; returns True if agent running."""
+    if client is None:
+        return False
+
+    refresh_agents()
+    if agent in AGENTS:
+        return True
+
+    try:
+        # Find container by compose service label
+        containers = client.containers.list(
+            all=True,
+            filters={
+                "label": ["agent.enabled=true", f"com.docker.compose.service={agent}"]
+            },
+        )
+        if not containers:
+            logger.warning("agent_container_not_found", agent=agent)
+            return False
+        c = containers[0]
+        c.start()
+        logger.info("agent_started_lazy", agent=agent)
+    except Exception as e:
+        logger.warning("agent_lazy_start_failed", agent=agent, error=str(e))
+        return False
+
+    # Poll for readiness (up to 30 s)
+    for _ in range(30):
+        time.sleep(1)
+        refresh_agents()
+        if agent in AGENTS:
+            return True
+    logger.warning("agent_lazy_start_timeout", agent=agent)
+    return False
+
+
+async def _idle_reaper():
+    """Background task that stops idle containers."""
+    if client is None:
+        return
+    while True:
+        await asyncio.sleep(60)
+        now = datetime.datetime.utcnow()
+        for c in client.containers.list(filters={"label": "agent.enabled=true"}):
+            name = c.labels.get("com.docker.compose.service", c.name)
+            last = LAST_SEEN.get(name)
+            timeout_min = IDLE_TIMEOUTS.get(name, GLOBAL_IDLE_TIMEOUT)
+            if last is None:
+                continue  # never invoked
+            if (now - last).total_seconds() >= timeout_min * 60:
+                try:
+                    c.stop()
+                    logger.info(
+                        "agent_stopped_idle", agent=name, idle_minutes=timeout_min
+                    )
+                    # remove from cache so next invoke will restart
+                    refresh_agents()
+                except Exception as e:
+                    logger.warning("agent_idle_stop_failed", agent=name, error=str(e))
 
 
 refresh_agents()
@@ -366,6 +453,9 @@ async def watch_docker():
 
     loop.run_in_executor(None, _watch)
 
+    # start idle reaper background task
+    asyncio.create_task(_idle_reaper())
+
 
 @app.get("/{agent}/docs", response_class=HTMLResponse)
 async def proxy_docs(agent: str):
@@ -388,6 +478,10 @@ async def proxy_openapi(agent: str):
         return JSONResponse(content=r.json(), status_code=r.status_code)
 
 
+class AgentsFilter(BaseModel):
+    state: str = "running"  # running | idle | all
+
+
 @app.get("/agents")
 async def list_agents():
     """Return the names of every discoverable agent.
@@ -397,6 +491,36 @@ async def list_agents():
     """
     refresh_agents()
     return {"agents": list(AGENTS.keys())}
+
+
+@app.post("/agents")
+async def list_agents_filtered(filter: AgentsFilter):
+    """Return agents filtered by state via JSON body."""
+    refresh_agents()
+    running_set = set(AGENTS.keys())
+
+    if client is None:
+        # Docker unavailable – only running known
+        selected = running_set if filter.state in {"running", "all"} else set()
+        return {"agents": sorted(selected)}
+
+    # All agent-labeled containers (running or stopped)
+    all_ctrs = {
+        c.labels.get("com.docker.compose.service", c.name)
+        for c in client.containers.list(
+            all=True, filters={"label": "agent.enabled=true"}
+        )
+    }
+    idle_set = all_ctrs - running_set
+
+    if filter.state == "running":
+        selected = running_set
+    elif filter.state == "idle":
+        selected = idle_set
+    else:
+        selected = running_set | idle_set
+
+    return {"agents": sorted(selected)}
 
 
 @app.get("/agents/{agent}")
@@ -466,6 +590,9 @@ async def invoke_async(agent: str, request: Request):
     """
     if agent not in AGENTS:
         raise HTTPException(status_code=404, detail="unknown agent")
+
+    # record last activity
+    LAST_SEEN[agent] = datetime.datetime.utcnow()
 
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):

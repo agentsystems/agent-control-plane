@@ -1,0 +1,212 @@
+"""Additional unit tests for new idle reaper & on-demand launch features of gateway."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+import importlib.util as _util
+import types
+import datetime
+
+import pytest
+from fastapi.testclient import TestClient
+
+# Dynamically load the gateway module from source path (avoids install step)
+_repo_root = Path(__file__).resolve().parents[1]
+_gateway_path = _repo_root / "cmd" / "gateway" / "main.py"
+_spec = _util.spec_from_file_location("agent_gateway", _gateway_path)
+assert _spec and _spec.loader, "Failed to locate gateway source file"
+gw = _util.module_from_spec(_spec)  # type: ignore
+_spec.loader.exec_module(gw)  # type: ignore[attr-defined]
+
+# Expose module under the expected import path so internal relative imports work
+pkg = types.ModuleType("cmd")
+subpkg = types.ModuleType("cmd.gateway")
+subpkg.main = gw
+pkg.gateway = subpkg
+sys.modules["cmd"] = pkg
+sys.modules["cmd.gateway"] = subpkg
+sys.modules["cmd.gateway.main"] = gw
+
+
+class _StubContainer:
+    """Simple stub mimicking Docker SDK Container object."""
+
+    def __init__(self, name: str, port: str = "8000") -> None:
+        self.labels = {
+            "agent.enabled": "true",
+            "com.docker.compose.service": name,
+            "agent.port": port,
+        }
+        self.name = f"{name}_container"
+        self._started = False
+
+    # Gateway only calls .start() on ensure_agent_running
+    def start(self):  # noqa: D401 – stub method
+        self._started = True
+
+
+class _StubContainers:
+    """Return different data based on `all` param to simulate running/idle sets."""
+
+    def __init__(self, running: set[str], all_agents: set[str]):
+        self._running = running
+        self._all = all_agents
+
+    def list(self, *_, **kwargs):  # noqa: D401 – duck type signature
+        is_all = kwargs.get("all", False)
+        agents = self._all if is_all else self._running
+        return [_StubContainer(name) for name in agents]
+
+
+class _StubClient:
+    def __init__(self, running: set[str], all_agents: set[str]):
+        self.containers = _StubContainers(running, all_agents)
+
+
+@pytest.fixture()
+def restore_globals():
+    """Reset mutable global state on gw after each test."""
+    original_agents = gw.AGENTS.copy()
+    original_client = gw.client
+    original_last_seen = gw.LAST_SEEN.copy()
+    yield
+    gw.AGENTS = original_agents
+    gw.client = original_client
+    gw.LAST_SEEN = original_last_seen
+
+
+def _mount_testclient():
+    """Return TestClient with heavy startup handlers removed for unit test speed."""
+    gw.app.router.on_startup.clear()
+    gw.app.router.on_shutdown.clear()
+    return TestClient(gw.app)
+
+
+def test_agents_filtered_endpoint(monkeypatch, restore_globals):
+    """/agents POST should respect state filter values."""
+    # Simulate one running agent (foo) and second stopped agent (bar)
+    running = {"foo"}
+    all_agents = {"foo", "bar"}
+
+    stub = _StubClient(running, all_agents)
+    monkeypatch.setattr(gw, "client", stub)
+
+    # Pre-populate cached running agents
+    gw.AGENTS = {"foo": "http://foo:8000/invoke"}
+
+    with _mount_testclient() as client:
+        # running only
+        resp = client.post("/agents", json={"state": "running"})
+        assert resp.status_code == 200
+        assert resp.json() == {"agents": ["foo"]}
+
+        # idle only
+        resp = client.post("/agents", json={"state": "idle"})
+        assert resp.status_code == 200
+        assert resp.json() == {"agents": ["bar"]}
+
+        # all
+        resp = client.post("/agents", json={"state": "all"})
+        assert resp.status_code == 200
+        assert set(resp.json()["agents"]) == {"foo", "bar"}
+
+
+def test_ensure_agent_running_starts_container(monkeypatch, restore_globals):
+    """ensure_agent_running should start container when not already running."""
+    target = "baz"
+    running: set[str] = set()  # none running initially
+    all_agents = {target}
+
+    stub_container = _StubContainer(target)
+
+    class _Containers(_StubContainers):  # override list for dynamic behaviour
+        def __init__(self):
+            super().__init__(running, all_agents)
+            self._obj = stub_container
+
+        def list(self, *_, **kwargs):
+            # Return stub container always (simulate docker list)
+            return [self._obj]
+
+    class _Client:
+        def __init__(self):
+            self.containers = _Containers()
+
+    monkeypatch.setattr(gw, "client", _Client())
+
+    # Patch refresh_agents to mark agent as running after first call
+    call_count = {"n": 0}
+
+    def _fake_refresh():
+        if call_count["n"] == 0:
+            # first call – still stopped
+            call_count["n"] += 1
+        else:
+            gw.AGENTS[target] = "http://baz:8000/invoke"
+
+    monkeypatch.setattr(gw, "refresh_agents", _fake_refresh)
+
+    # Patch time.sleep to avoid real delay
+    monkeypatch.setattr(gw.time, "sleep", lambda x: None)
+
+    started = gw.ensure_agent_running(target)
+    assert started, "Agent should be considered running after ensure-agent-running"
+    assert stub_container._started, "Container.start() should be invoked"
+
+
+def test_idle_reaper_stops_idle_containers(monkeypatch, restore_globals):
+    """_idle_reaper should stop containers idle past timeout when invoked once."""
+    target = "qux"
+    stub_container = _StubContainer(target)
+    stopped = {"flag": False}
+
+    def _stop():  # noqa: D401
+        stopped["flag"] = True
+
+    stub_container.stop = _stop  # type: ignore
+
+    class _Containers:
+        def list(self, *_, **kwargs):  # noqa: D401
+            return [stub_container]
+
+    class _Client:
+        def __init__(self):
+            self.containers = _Containers()
+
+    monkeypatch.setattr(gw, "client", _Client())
+
+    # Mark last_seen far in the past
+    gw.LAST_SEEN[target] = datetime.datetime.utcnow() - datetime.timedelta(minutes=30)
+    # Configure timeout low to ensure it triggers
+    gw.IDLE_TIMEOUTS[target] = 5  # minutes
+
+    # Patch asyncio.sleep to coroutine that yields using original sleep to allow task scheduling
+    _orig_sleep = __import__("asyncio").sleep
+
+    async def _fast_sleep(_):  # noqa: D401
+        # Always yield control immediately without real delay
+        await _orig_sleep(0)
+
+    monkeypatch.setattr(gw.asyncio, "sleep", _fast_sleep)
+
+    # Run _idle_reaper coroutine for a single iteration via asyncio.run
+    import asyncio
+
+    async def _run_once():
+        """Run _idle_reaper briefly allowing at least one iteration."""
+        task = asyncio.create_task(gw._idle_reaper())
+        # Yield control a few times so the reaper has a chance to execute and call stop()
+        for _ in range(10):
+            await asyncio.sleep(0)
+            if stopped["flag"]:
+                break
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(_run_once())
+
+    assert stopped["flag"], "Idle container should have been stopped by reaper"
