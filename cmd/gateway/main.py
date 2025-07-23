@@ -588,8 +588,14 @@ async def invoke_async(agent: str, request: Request):
     Returns immediately with thread_id and status URL. A background task will
     forward the call to the target agent and persist the result.
     """
+    # Refresh cache; if agent not running, attempt lazy start. Only containers
+    # labelled as agents will be started – if no such container exists we 404.
+    refresh_agents()
     if agent not in AGENTS:
-        raise HTTPException(status_code=404, detail="unknown agent")
+        if ensure_agent_running(agent):
+            refresh_agents()
+        else:
+            raise HTTPException(status_code=404, detail="unknown agent")
 
     # record last activity
     LAST_SEEN[agent] = datetime.datetime.utcnow()
