@@ -56,7 +56,7 @@ make up    # gateway + Postgres + hello-world-agent
 ```
 
 • Swagger: <http://localhost:18080/hello-world-agent/docs>
-• List agents: `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
+• List agents & states: `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
 
 ---
 
@@ -193,7 +193,8 @@ make up        # docker compose up -d (gateway + Postgres + example agent)
 
 Browse:
 • Gateway Swagger UI → <http://localhost:18080/hello-world-agent/docs>
-• List agents        → `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
+• List agents & states → `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
+  Returns JSON array of objects like `{ "name": "hello-world-agent", "state": "running" }`
 
 ## Local development (hot reload)
 
@@ -302,7 +303,7 @@ Agent discovery labels:
           # repo root
 docker compose build                  # build agents + gateway
 docker compose up -d                  # start stack (detached)
-curl http://localhost:18080/agents     # → {"agents":[ ... ]}
+curl http://localhost:18080/agents | jq .   # → `{ "agents": [ {"name": "hello-world-agent", "state": "running"}, ... ] }`
 ```
 
 Swagger for any agent:
@@ -370,7 +371,7 @@ Then:
 ```bash
 docker compose build my_fourth_agent
 docker compose up -d my_fourth_agent
-curl http://localhost:18080/agents          # now lists my_fourth_agent
+curl http://localhost:18080/agents | jq .   # shows `{ "name": "my_fourth_agent", "state": "running" }`
 curl -X POST http://localhost:18080/invoke/my_fourth_agent \
      -H "Content-Type: application/json" \
      -d '{"today":"2025-06-13"}'

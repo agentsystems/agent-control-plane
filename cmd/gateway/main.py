@@ -48,6 +48,8 @@ AGENTS = {}  # name -> target URL
 AGENT_LOCK = threading.Lock()
 # Map container IP -> agent name for proxy enforcement without headers
 AGENT_IP_MAP: dict[str, str] = {}
+# Names of agents defined in agentsystems-config.yml (may have no container yet)
+CONFIGURED_AGENT_NAMES: set[str] = set()
 
 # ---------------------------------------------------------------------------
 # Proxy settings
@@ -96,6 +98,11 @@ def _load_egress_allowlist(path: str) -> None:
                 logger.warning("config_idle_timeout_invalid", agent=name)
     global IDLE_TIMEOUTS
     IDLE_TIMEOUTS = idle_map
+    # Capture configured agent names for visibility in /agents endpoints
+    global CONFIGURED_AGENT_NAMES
+    CONFIGURED_AGENT_NAMES = {
+        agent.get("name") for agent in raw.get("agents", []) if agent.get("name")
+    }
     logger.info(
         "config_loaded",
         egress_entries=len(EGRESS_ALLOWLIST),
@@ -500,7 +507,37 @@ async def list_agents():
     listener temporarily clears AGENTS right before a request.
     """
     refresh_agents()
-    return {"agents": list(AGENTS.keys())}
+
+    configured_set = CONFIGURED_AGENT_NAMES
+    running_set = set(AGENTS.keys())
+
+    # Determine stopped/not-created sets using Docker info when available
+    stopped_set: set[str]
+    if client is not None:
+        all_ctrs = {
+            c.labels.get("com.docker.compose.service", c.name)
+            for c in client.containers.list(
+                all=True, filters={"label": "agent.enabled=true"}
+            )
+        }
+        stopped_set = all_ctrs - running_set
+    else:
+        # Docker unavailable – nothing running or stopped
+        stopped_set = set()
+
+    # Build response objects with state per agent
+    names_union = configured_set.union(running_set).union(stopped_set)
+    agents_info: list[dict[str, str]] = []
+    for name in sorted(names_union):
+        if name in running_set:
+            state = "running"
+        elif name in stopped_set:
+            state = "stopped"
+        else:
+            state = "not-created"
+        agents_info.append({"name": name, "state": state})
+
+    return {"agents": agents_info}
 
 
 @app.post("/agents")
@@ -508,10 +545,17 @@ async def list_agents_filtered(filter: AgentsFilter):
     """Return agents filtered by state via JSON body."""
     refresh_agents()
     running_set = set(AGENTS.keys())
+    configured_set = CONFIGURED_AGENT_NAMES
 
     if client is None:
-        # Docker unavailable – only running known
-        selected = running_set if filter.state in {"running", "all"} else set()
+        # Docker unavailable – rely on configured list only
+        idle_set = configured_set - running_set
+        if filter.state == "running":
+            selected = running_set
+        elif filter.state == "idle":
+            selected = idle_set
+        else:
+            selected = running_set | idle_set
         return {"agents": sorted(selected)}
 
     # All agent-labeled containers (running or stopped)
@@ -521,7 +565,8 @@ async def list_agents_filtered(filter: AgentsFilter):
             all=True, filters={"label": "agent.enabled=true"}
         )
     }
-    idle_set = all_ctrs - running_set
+    not_created_set = configured_set - all_ctrs
+    idle_set = (all_ctrs - running_set) | not_created_set
 
     if filter.state == "running":
         selected = running_set
