@@ -1,6 +1,9 @@
 import asyncio
 import os
 import uuid
+import json
+import pathlib
+from fastapi import UploadFile
 
 import asyncpg
 import threading
@@ -659,12 +662,57 @@ async def invoke_async(agent: str, request: Request):
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=400, detail="missing bearer token")
 
-    payload = await request.json()
+    # ------------------------------------------------------------------
+    # Parse request body – JSON or multipart with optional file upload
+    # ------------------------------------------------------------------
+    content_type = request.headers.get("content-type", "").lower()
+    payload: dict
+    uploaded_files: list[UploadFile] = []
+    if content_type.startswith("multipart/"):
+        form = await request.form()
+        # Collect every UploadFile in the form (support multiple)
+        for val in form.values():
+            if isinstance(val, UploadFile):
+                uploaded_files.append(val)
+        # Look for JSON body part named 'json'
+        json_part = form.get("json")
+        if json_part:
+            try:
+                payload = json.loads(json_part)
+            except Exception:
+                payload = {}
+        else:
+            payload = {}
+    else:
+        payload = await request.json()
+        uploaded_files = []
+
     # Extract optional sync flag; default False (async)
     sync_flag = bool(payload.pop("sync", False))
 
     thread_id = str(uuid.uuid4())
     await _insert_job_row(thread_id, agent, auth)
+
+    # ------------------------------------------------------------------
+    # Stage uploaded file(s) into artifacts volume if present
+    # ------------------------------------------------------------------
+    MAX_MB = int(os.getenv("ACP_MAX_UPLOAD_MB", "200"))
+    MAX_BYTES = MAX_MB * 1024 * 1024
+    if uploaded_files:
+        artifacts_dir = pathlib.Path("/artifacts") / agent / "input" / thread_id
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        for up in uploaded_files:
+            # Sanitize filename to prevent path traversal
+            fname = pathlib.Path(up.filename or "input.bin").name
+            if fname in {"", ".", ".."}:
+                continue
+            data = await up.read()
+            if len(data) > MAX_BYTES:
+                raise HTTPException(
+                    status_code=413, detail=f"file '{fname}' exceeds {MAX_MB} MB limit"
+                )
+            with open(artifacts_dir / fname, "wb") as fh:
+                fh.write(data)
 
     async def _run_invocation():
         async with httpx.AsyncClient() as cli:
