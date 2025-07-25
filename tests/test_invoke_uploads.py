@@ -93,7 +93,9 @@ def _patch_gateway(monkeypatch, tmp_path):
 
 
 def _client():
-    return TestClient(gw.app)
+    client = TestClient(gw.app)
+    client.headers.update({"Authorization": "Bearer testtoken"})
+    return client
 
 
 # ---------------------------------------------------------------------------
