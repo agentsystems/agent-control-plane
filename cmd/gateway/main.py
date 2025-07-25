@@ -674,6 +674,11 @@ async def invoke_async(agent: str, request: Request):
         for val in form.values():
             if isinstance(val, UploadFile):
                 uploaded_files.append(val)
+            elif isinstance(val, list):
+                # Starlette returns a list when multiple files share the same field name
+                for item in val:
+                    if isinstance(item, UploadFile):
+                        uploaded_files.append(item)
         # Look for JSON body part named 'json'
         json_part = form.get("json")
         if json_part:
@@ -707,7 +712,7 @@ async def invoke_async(agent: str, request: Request):
             if fname in {"", ".", ".."}:
                 continue
             data = await up.read()
-            if len(data) > MAX_BYTES:
+            if len(data) >= MAX_BYTES:
                 raise HTTPException(
                     status_code=413, detail=f"file '{fname}' exceeds {MAX_MB} MB limit"
                 )
