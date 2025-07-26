@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Install runtime deps
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir fastapi uvicorn[standard] httpx docker asyncpg structlog
+    && pip install --no-cache-dir fastapi uvicorn[standard] httpx docker asyncpg structlog python-multipart
 
 # Copy gateway source
 COPY cmd /app/cmd
