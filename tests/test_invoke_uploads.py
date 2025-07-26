@@ -137,8 +137,8 @@ def test_invoke_single_file(tmp_path):
         resp = client.post("/invoke/foo", files=files, data=data)
         assert resp.status_code == 200, resp.text
         tid = resp.json()["thread_id"]
-        # Check file staged correctly
-        staged = Path("/artifacts/foo/input") / tid / "greeting.txt"
+        # Check file staged correctly (thread-centric structure)
+        staged = Path("/artifacts") / tid / "in" / "greeting.txt"
         assert staged.exists() and staged.read_bytes() == file_content
 
 
@@ -153,7 +153,8 @@ def test_invoke_multiple_files(tmp_path):
         assert resp.status_code == 200, resp.text
         tid = resp.json()["thread_id"]
         for fname, content in [("a.txt", b"a"), ("b.txt", b"b")]:
-            staged = Path("/artifacts/foo/input") / tid / fname
+            # Thread-centric structure: /artifacts/{thread_id}/in/{filename}
+            staged = Path("/artifacts") / tid / "in" / fname
             assert staged.read_bytes() == content
 
 
