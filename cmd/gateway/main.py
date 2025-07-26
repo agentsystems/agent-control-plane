@@ -701,9 +701,28 @@ async def invoke_async(agent: str, request: Request):
     # ------------------------------------------------------------------
     MAX_MB = int(os.getenv("ACP_MAX_UPLOAD_MB", "200"))
     MAX_BYTES = MAX_MB * 1024 * 1024
+
+    # Always create thread base directory with correct ownership (thread-centric structure)
+    thread_base_dir = os.path.join("/artifacts", thread_id)
+    os.makedirs(thread_base_dir, exist_ok=True)
+    try:
+        import shutil
+
+        shutil.chown(thread_base_dir, user=1001, group=1001)
+    except (OSError, PermissionError):
+        # If chown fails, continue - init container should have set base permissions
+        pass
+
     if uploaded_files:
-        artifacts_dir = os.path.join("/artifacts", agent, "input", thread_id)
+        # Thread-centric path: /artifacts/{thread_id}/in/
+        artifacts_dir = os.path.join("/artifacts", thread_id, "in")
         os.makedirs(artifacts_dir, exist_ok=True)
+        # Set ownership to user 1001 (agent user) for directory access
+        try:
+            shutil.chown(artifacts_dir, user=1001, group=1001)
+        except (OSError, PermissionError):
+            # If chown fails, continue - init container should have set base permissions
+            pass
         for up in uploaded_files:
             # Sanitize filename to prevent path traversal
             fname = os.path.basename(up.filename or "input.bin")
@@ -737,7 +756,16 @@ async def invoke_async(agent: str, request: Request):
         )
         try:
             r = await _run_invocation()
-            resp_json = r.json()
+            # Check if response is successful and contains JSON
+            if r.status_code != 200:
+                raise Exception(f"Agent returned status {r.status_code}: {r.text}")
+
+            try:
+                resp_json = r.json()
+            except Exception as json_err:
+                raise Exception(
+                    f"Agent returned non-JSON response: {r.text[:200]}..."
+                ) from json_err
             await _update_job_record(
                 thread_id,
                 state=INV_STATE_COMPLETED,
