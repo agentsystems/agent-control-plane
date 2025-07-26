@@ -216,7 +216,7 @@ async def _idle_reaper():
         return
     while True:
         await asyncio.sleep(60)
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         for c in client.containers.list(filters={"label": "agent.enabled=true"}):
             name = c.labels.get("com.docker.compose.service", c.name)
             last = LAST_SEEN.get(name)
@@ -655,7 +655,7 @@ async def invoke_async(agent: str, request: Request):
             raise HTTPException(status_code=404, detail="unknown agent")
 
     # record last activity
-    LAST_SEEN[agent] = datetime.datetime.utcnow()
+    LAST_SEEN[agent] = datetime.datetime.now(datetime.timezone.utc)
 
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
@@ -774,7 +774,7 @@ async def invoke_async(agent: str, request: Request):
         await _update_job_record(
             thread_id,
             state=INV_STATE_RUNNING,
-            started_at=datetime.datetime.utcnow().isoformat(),
+            started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         )
         try:
             r = await _run_invocation()
@@ -791,7 +791,7 @@ async def invoke_async(agent: str, request: Request):
             await _update_job_record(
                 thread_id,
                 state=INV_STATE_COMPLETED,
-                ended_at=datetime.datetime.utcnow().isoformat(),
+                ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 result=resp_json,
             )
             # Ensure thread id for compatibility
@@ -801,7 +801,7 @@ async def invoke_async(agent: str, request: Request):
             await _update_job_record(
                 thread_id,
                 state=INV_STATE_FAILED,
-                ended_at=datetime.datetime.utcnow().isoformat(),
+                ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 error={"message": str(e)},
             )
             raise
@@ -813,7 +813,7 @@ async def invoke_async(agent: str, request: Request):
         await _update_job_record(
             thread_id,
             state=INV_STATE_RUNNING,
-            started_at=datetime.datetime.utcnow().isoformat(),
+            started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         )
         async with httpx.AsyncClient() as cli:
             try:
@@ -832,7 +832,9 @@ async def invoke_async(agent: str, request: Request):
                     await _update_job_record(
                         thread_id,
                         state=INV_STATE_FAILED,
-                        ended_at=datetime.datetime.utcnow().isoformat(),
+                        ended_at=datetime.datetime.now(
+                            datetime.timezone.utc
+                        ).isoformat(),
                         error={
                             "status": r.status_code,
                             "body": r.text[:500],  # truncate large bodies
@@ -847,14 +849,16 @@ async def invoke_async(agent: str, request: Request):
                     await _update_job_record(
                         thread_id,
                         state=INV_STATE_COMPLETED,
-                        ended_at=datetime.datetime.utcnow().isoformat(),
+                        ended_at=datetime.datetime.now(
+                            datetime.timezone.utc
+                        ).isoformat(),
                         result=parsed,
                     )
             except Exception as e:
                 await _update_job_record(
                     thread_id,
                     state=INV_STATE_FAILED,
-                    ended_at=datetime.datetime.utcnow().isoformat(),
+                    ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     error={"message": str(e)},
                 )
 
