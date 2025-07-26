@@ -183,7 +183,9 @@ def test_idle_reaper_stops_idle_containers(monkeypatch, restore_globals):
     monkeypatch.setattr(gw, "client", _Client())
 
     # Mark last_seen far in the past
-    gw.LAST_SEEN[target] = datetime.datetime.utcnow() - datetime.timedelta(minutes=30)
+    gw.LAST_SEEN[target] = datetime.datetime.now(
+        datetime.timezone.utc
+    ) - datetime.timedelta(minutes=30)
     # Configure timeout low to ensure it triggers
     gw.IDLE_TIMEOUTS[target] = 5  # minutes
 
