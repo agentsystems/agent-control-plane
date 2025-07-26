@@ -216,7 +216,7 @@ async def _idle_reaper():
         return
     while True:
         await asyncio.sleep(60)
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         for c in client.containers.list(filters={"label": "agent.enabled=true"}):
             name = c.labels.get("com.docker.compose.service", c.name)
             last = LAST_SEEN.get(name)
@@ -655,7 +655,7 @@ async def invoke_async(agent: str, request: Request):
             raise HTTPException(status_code=404, detail="unknown agent")
 
     # record last activity
-    LAST_SEEN[agent] = datetime.datetime.utcnow()
+    LAST_SEEN[agent] = datetime.datetime.now(datetime.timezone.utc)
 
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
@@ -704,7 +704,11 @@ async def invoke_async(agent: str, request: Request):
 
     # Always create thread base directory with correct ownership (thread-centric structure)
     thread_base_dir = os.path.join("/artifacts", thread_id)
-    os.makedirs(thread_base_dir, exist_ok=True)
+    os.makedirs(thread_base_dir, exist_ok=True, mode=0o777)
+    try:
+        os.chmod(thread_base_dir, 0o777)
+    except PermissionError:
+        pass
     try:
         import shutil
 
@@ -713,11 +717,29 @@ async def invoke_async(agent: str, request: Request):
         # If chown fails, continue - init container should have set base permissions
         pass
 
+    # ------------------------------------------------------------------
+    # Ensure thread-centric input/output subdirectories exist
+    # These are required even for JSON-only requests so that agent
+    # containers running as UID 1001 can write their outputs without
+    # hitting PermissionError.  We create both `in` and `out` folders.
+    # ------------------------------------------------------------------
+    in_dir = os.path.join("/artifacts", thread_id, "in")
+    out_dir = os.path.join("/artifacts", thread_id, "out")
+    for _d in (in_dir, out_dir):
+        os.makedirs(_d, exist_ok=True, mode=0o777)
+        try:
+            shutil.chown(_d, user=1001, group=1001)  # type: ignore[arg-type]
+        except (OSError, PermissionError):
+            pass
+        # Ensure world-writable if chown failed or gateway runs non-root
+        try:
+            os.chmod(_d, 0o777)
+        except PermissionError:
+            pass
+
+    # If there are uploaded files, stage them into the `in` directory
     if uploaded_files:
-        # Thread-centric path: /artifacts/{thread_id}/in/
-        artifacts_dir = os.path.join("/artifacts", thread_id, "in")
-        os.makedirs(artifacts_dir, exist_ok=True)
-        # Set ownership to user 1001 (agent user) for directory access
+        artifacts_dir = in_dir
         try:
             shutil.chown(artifacts_dir, user=1001, group=1001)
         except (OSError, PermissionError):
@@ -752,7 +774,7 @@ async def invoke_async(agent: str, request: Request):
         await _update_job_record(
             thread_id,
             state=INV_STATE_RUNNING,
-            started_at=datetime.datetime.utcnow().isoformat(),
+            started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         )
         try:
             r = await _run_invocation()
@@ -769,7 +791,7 @@ async def invoke_async(agent: str, request: Request):
             await _update_job_record(
                 thread_id,
                 state=INV_STATE_COMPLETED,
-                ended_at=datetime.datetime.utcnow().isoformat(),
+                ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 result=resp_json,
             )
             # Ensure thread id for compatibility
@@ -779,7 +801,7 @@ async def invoke_async(agent: str, request: Request):
             await _update_job_record(
                 thread_id,
                 state=INV_STATE_FAILED,
-                ended_at=datetime.datetime.utcnow().isoformat(),
+                ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 error={"message": str(e)},
             )
             raise
@@ -791,7 +813,7 @@ async def invoke_async(agent: str, request: Request):
         await _update_job_record(
             thread_id,
             state=INV_STATE_RUNNING,
-            started_at=datetime.datetime.utcnow().isoformat(),
+            started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         )
         async with httpx.AsyncClient() as cli:
             try:
@@ -810,7 +832,9 @@ async def invoke_async(agent: str, request: Request):
                     await _update_job_record(
                         thread_id,
                         state=INV_STATE_FAILED,
-                        ended_at=datetime.datetime.utcnow().isoformat(),
+                        ended_at=datetime.datetime.now(
+                            datetime.timezone.utc
+                        ).isoformat(),
                         error={
                             "status": r.status_code,
                             "body": r.text[:500],  # truncate large bodies
@@ -825,14 +849,16 @@ async def invoke_async(agent: str, request: Request):
                     await _update_job_record(
                         thread_id,
                         state=INV_STATE_COMPLETED,
-                        ended_at=datetime.datetime.utcnow().isoformat(),
+                        ended_at=datetime.datetime.now(
+                            datetime.timezone.utc
+                        ).isoformat(),
                         result=parsed,
                     )
             except Exception as e:
                 await _update_job_record(
                     thread_id,
                     state=INV_STATE_FAILED,
-                    ended_at=datetime.datetime.utcnow().isoformat(),
+                    ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     error={"message": str(e)},
                 )
 

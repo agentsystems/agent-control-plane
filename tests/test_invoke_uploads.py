@@ -83,9 +83,11 @@ def _patch_gateway(monkeypatch, tmp_path):
     orig_makedirs = gw.os.makedirs
     orig_path_join = gw.os.path.join
 
-    def _patched_makedirs(path, exist_ok=True):
+    def _patched_makedirs(path, exist_ok=True, mode=None):
         if str(path).startswith("/artifacts"):
             path = str(artifacts_root) + str(path)[len("/artifacts") :]
+        if mode is not None:
+            return orig_makedirs(path, exist_ok=exist_ok, mode=mode)
         return orig_makedirs(path, exist_ok=exist_ok)
 
     def _patched_join(*args):
