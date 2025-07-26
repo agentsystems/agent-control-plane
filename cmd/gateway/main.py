@@ -697,21 +697,6 @@ async def invoke_async(agent: str, request: Request):
     await _insert_job_row(thread_id, agent, auth)
 
     # ------------------------------------------------------------------
-    # Prepare artifacts directories with proper permissions for agent
-    # ------------------------------------------------------------------
-    # Always create output directory so agent can write artifacts
-    output_dir = os.path.join("/artifacts", agent, "output", thread_id)
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Set ownership to agent user (1001) so agent containers can write
-    try:
-        os.chown(os.path.join("/artifacts", agent), 1001, 1001)
-        os.chown(output_dir, 1001, 1001)
-    except (OSError, PermissionError):
-        # Ignore permission errors in environments where chown isn't available
-        pass
-
-    # ------------------------------------------------------------------
     # Stage uploaded file(s) into artifacts volume if present
     # ------------------------------------------------------------------
     MAX_MB = int(os.getenv("ACP_MAX_UPLOAD_MB", "200"))
@@ -719,11 +704,6 @@ async def invoke_async(agent: str, request: Request):
     if uploaded_files:
         artifacts_dir = os.path.join("/artifacts", agent, "input", thread_id)
         os.makedirs(artifacts_dir, exist_ok=True)
-        # Set input directory permissions too
-        try:
-            os.chown(artifacts_dir, 1001, 1001)
-        except (OSError, PermissionError):
-            pass
         for up in uploaded_files:
             # Sanitize filename to prevent path traversal
             fname = os.path.basename(up.filename or "input.bin")
