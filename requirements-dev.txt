@@ -8,3 +8,4 @@ structlog
 httpx
 alembic
 SQLAlchemy
+python-multipart
