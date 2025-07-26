@@ -78,18 +78,8 @@ def _patch_gateway(monkeypatch, tmp_path):
     # Mount /artifacts to a temp dir
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
-    # Monkeypatch pathlib.Path in gateway so '/artifacts' resolves into temp dir
-    orig_path_cls = gw.pathlib.Path
 
-    def _patched(p: str | Path):
-        p_str = str(p)
-        if p_str.startswith("/artifacts"):
-            return orig_path_cls(str(artifacts_root) + p_str[len("/artifacts") :])
-        return orig_path_cls(p_str)
-
-    monkeypatch.setattr(gw, "pathlib", types.SimpleNamespace(Path=_patched))
-
-    # Also patch os functions to redirect /artifacts paths
+    # Patch os functions to redirect /artifacts paths
     orig_makedirs = gw.os.makedirs
     orig_path_join = gw.os.path.join
 
