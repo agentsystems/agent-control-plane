@@ -89,6 +89,34 @@ def _patch_gateway(monkeypatch, tmp_path):
 
     monkeypatch.setattr(gw, "pathlib", types.SimpleNamespace(Path=_patched))
 
+    # Also patch os functions to redirect /artifacts paths
+    orig_makedirs = gw.os.makedirs
+    orig_path_join = gw.os.path.join
+
+    def _patched_makedirs(path, exist_ok=True):
+        if str(path).startswith("/artifacts"):
+            path = str(artifacts_root) + str(path)[len("/artifacts") :]
+        return orig_makedirs(path, exist_ok=exist_ok)
+
+    def _patched_join(*args):
+        result = orig_path_join(*args)
+        if result.startswith("/artifacts"):
+            return str(artifacts_root) + result[len("/artifacts") :]
+        return result
+
+    monkeypatch.setattr(gw.os, "makedirs", _patched_makedirs)
+    monkeypatch.setattr(gw.os.path, "join", _patched_join)
+
+    # Patch open function to redirect /artifacts file writes
+    orig_open = open
+
+    def _patched_open(file, mode="r", *args, **kwargs):
+        if str(file).startswith("/artifacts"):
+            file = str(artifacts_root) + str(file)[len("/artifacts") :]
+        return orig_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", _patched_open)
+
     yield
 
 

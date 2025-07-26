@@ -2,7 +2,6 @@ import asyncio
 import os
 import uuid
 import json
-import pathlib
 from fastapi import UploadFile
 
 import asyncpg
@@ -670,15 +669,14 @@ async def invoke_async(agent: str, request: Request):
     uploaded_files: list[UploadFile] = []
     if content_type.startswith("multipart/"):
         form = await request.form()
-        # Collect every UploadFile in the form (support multiple)
-        for val in form.values():
-            if isinstance(val, UploadFile):
-                uploaded_files.append(val)
-            elif isinstance(val, list):
-                # Starlette returns a list when multiple files share the same field name
-                for item in val:
-                    if isinstance(item, UploadFile):
-                        uploaded_files.append(item)
+        # Gather every UploadFile across all fields (supports multiple files per field)
+        for field in form:
+            for item in form.getlist(field):
+                # Check if item is an UploadFile (either by type or duck typing)
+                if isinstance(item, UploadFile) or (
+                    hasattr(item, "filename") and hasattr(item, "read")
+                ):
+                    uploaded_files.append(item)
         # Look for JSON body part named 'json'
         json_part = form.get("json")
         if json_part:
@@ -704,19 +702,19 @@ async def invoke_async(agent: str, request: Request):
     MAX_MB = int(os.getenv("ACP_MAX_UPLOAD_MB", "200"))
     MAX_BYTES = MAX_MB * 1024 * 1024
     if uploaded_files:
-        artifacts_dir = pathlib.Path("/artifacts") / agent / "input" / thread_id
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        artifacts_dir = os.path.join("/artifacts", agent, "input", thread_id)
+        os.makedirs(artifacts_dir, exist_ok=True)
         for up in uploaded_files:
             # Sanitize filename to prevent path traversal
-            fname = pathlib.Path(up.filename or "input.bin").name
+            fname = os.path.basename(up.filename or "input.bin")
             if fname in {"", ".", ".."}:
                 continue
             data = await up.read()
-            if len(data) >= MAX_BYTES:
+            if len(data) > MAX_BYTES:
                 raise HTTPException(
                     status_code=413, detail=f"file '{fname}' exceeds {MAX_MB} MB limit"
                 )
-            with open(artifacts_dir / fname, "wb") as fh:
+            with open(os.path.join(artifacts_dir, fname), "wb") as fh:
                 fh.write(data)
 
     async def _run_invocation():
