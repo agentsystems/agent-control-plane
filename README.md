@@ -88,6 +88,75 @@ If you built a custom image, update the tag in your Compose / Helm manifests (`a
 
 ---
 
+## File Uploads & Artifacts
+
+The gateway supports file uploads to agents and manages a shared artifacts volume.
+
+### Upload Endpoint
+
+Send multipart requests to any agent:
+
+```bash
+# Upload single file with JSON payload
+curl -X POST http://localhost:18080/invoke/agent-name \
+  -H "Authorization: Bearer token" \
+  -F "file=@data.csv" \
+  -F 'json={"sync": true, "format": "csv"}'
+
+# Upload multiple files
+curl -X POST http://localhost:18080/invoke/agent-name \
+  -H "Authorization: Bearer token" \
+  -F "file=@input1.txt" \
+  -F "file=@input2.txt" \
+  -F 'json={"sync": true}'
+```
+
+### Artifacts Volume Management
+
+The gateway automatically:
+
+1. **Creates thread directories**: `/artifacts/{thread-id}/{in,out}/` for each request
+2. **Saves uploaded files**: Files go to `/artifacts/{thread-id}/in/{filename}`
+3. **Sets permissions**: Ensures agents (UID 1001) can access files
+4. **Enforces limits**: Default 200MB upload limit (configurable via `ACP_MAX_UPLOAD_MB`)
+
+### Thread-Centric Structure
+
+```
+/artifacts/
+├── {thread-id-1}/
+│   ├── in/          # Files uploaded by client
+│   │   ├── data.csv
+│   │   └── config.json
+│   └── out/         # Files created by agent
+│       └── result.txt
+└── {thread-id-2}/
+    ├── in/
+    └── out/
+```
+
+### Gateway Environment Variables
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `ACP_MAX_UPLOAD_MB` | `200` | Maximum file upload size in MB |
+| `ACP_BIND_PORT` | `8080` | Gateway listen port inside container |
+| `ACP_AUDIT_DSN` | `postgresql://...` | Postgres connection for audit logs |
+
+### Accessing Artifacts
+
+View uploaded files and agent outputs:
+
+```bash
+# List all active threads
+docker exec gateway ls -la /artifacts/
+
+# Read specific files
+docker exec gateway cat /artifacts/{thread-id}/out/result.json
+```
+
+---
+
 ## Configuration
 
 ## Continuous Integration (GitHub Actions)
