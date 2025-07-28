@@ -101,11 +101,11 @@ def _patch_gateway(monkeypatch, tmp_path):
     gw.app.router.on_startup.clear()
 
     # Monkeypatch Docker client to avoid actual Docker calls
-    monkeypatch.setattr(gw, "client", None)
+    monkeypatch.setattr(gw.docker_discovery, "client", None)
 
     # Provide a dummy agent mapping so /invoke/foo is accepted
-    gw.AGENTS = {"foo": "http://foo:8000/invoke"}
-    monkeypatch.setattr(gw, "ensure_agent_running", lambda name: True)
+    gw.docker_discovery.AGENTS = {"foo": "http://foo:8000/invoke"}
+    monkeypatch.setattr(gw.docker_discovery, "ensure_agent_running", lambda name: True)
 
     # Patch httpx client used for forwarding calls
     monkeypatch.setattr(

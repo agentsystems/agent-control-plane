@@ -103,13 +103,13 @@ class _StubClient:
 @pytest.fixture()
 def restore_globals():
     """Reset mutable global state on gw after each test."""
-    original_agents = gw.AGENTS.copy()
-    original_client = gw.client
-    original_last_seen = gw.LAST_SEEN.copy()
+    original_agents = gw.docker_discovery.AGENTS.copy()
+    original_client = gw.docker_discovery.client
+    original_last_seen = gw.lifecycle.LAST_SEEN.copy()
     yield
-    gw.AGENTS = original_agents
-    gw.client = original_client
-    gw.LAST_SEEN = original_last_seen
+    gw.docker_discovery.AGENTS = original_agents
+    gw.docker_discovery.client = original_client
+    gw.lifecycle.LAST_SEEN = original_last_seen
 
 
 def _mount_testclient():
@@ -126,10 +126,10 @@ def test_agents_filtered_endpoint(monkeypatch, restore_globals):
     all_agents = {"foo", "bar"}
 
     stub = _StubClient(running, all_agents)
-    monkeypatch.setattr(gw, "client", stub)
+    monkeypatch.setattr(gw.docker_discovery, "client", stub)
 
     # Pre-populate cached running agents
-    gw.AGENTS = {"foo": "http://foo:8000/invoke"}
+    gw.docker_discovery.AGENTS = {"foo": "http://foo:8000/invoke"}
 
     with _mount_testclient() as client:
         # running only
@@ -169,7 +169,7 @@ def test_ensure_agent_running_starts_container(monkeypatch, restore_globals):
         def __init__(self):
             self.containers = _Containers()
 
-    monkeypatch.setattr(gw, "client", _Client())
+    monkeypatch.setattr(gw.docker_discovery, "client", _Client())
 
     # Patch refresh_agents to mark agent as running after first call
     call_count = {"n": 0}
@@ -179,7 +179,7 @@ def test_ensure_agent_running_starts_container(monkeypatch, restore_globals):
             # first call – still stopped
             call_count["n"] += 1
         else:
-            gw.AGENTS[target] = "http://baz:8000/invoke"
+            gw.docker_discovery.AGENTS[target] = "http://baz:8000/invoke"
 
     monkeypatch.setattr(gw, "refresh_agents", _fake_refresh)
 
@@ -216,14 +216,14 @@ def test_idle_reaper_stops_idle_containers(monkeypatch, restore_globals):
         def __init__(self):
             self.containers = _Containers()
 
-    monkeypatch.setattr(gw, "client", _Client())
+    monkeypatch.setattr(gw.docker_discovery, "client", _Client())
 
     # Mark last_seen far in the past
-    gw.LAST_SEEN[target] = datetime.datetime.now(
+    gw.lifecycle.LAST_SEEN[target] = datetime.datetime.now(
         datetime.timezone.utc
     ) - datetime.timedelta(minutes=30)
     # Configure timeout low to ensure it triggers
-    gw.IDLE_TIMEOUTS[target] = 5  # minutes
+    gw.egress.IDLE_TIMEOUTS[target] = 5  # minutes
 
     # Patch asyncio.sleep to coroutine that yields using original sleep to allow task scheduling
     _orig_sleep = __import__("asyncio").sleep

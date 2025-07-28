@@ -80,9 +80,9 @@ class _StubClient:
 
 def test_refresh_agents_updates_cache(monkeypatch):
     """refresh_agents should populate AGENTS dict from Docker labels."""
-    monkeypatch.setattr(gw, "client", _StubClient())
-    gw.refresh_agents()
-    assert gw.AGENTS == {"foo": "http://foo:7000/invoke"}
+    monkeypatch.setattr(gw.docker_discovery, "client", _StubClient())
+    gw.docker_discovery.refresh_agents()
+    assert gw.docker_discovery.AGENTS == {"foo": "http://foo:7000/invoke"}
 
 
 def test_health_endpoint(monkeypatch):
@@ -91,7 +91,7 @@ def test_health_endpoint(monkeypatch):
     gw.app.router.on_startup.clear()
 
     # Pre-populate agent cache
-    gw.AGENTS = {"foo": "http://foo:7000/invoke"}
+    gw.docker_discovery.AGENTS = {"foo": "http://foo:7000/invoke"}
 
     with TestClient(gw.app) as client:
         resp = client.get("/health")
