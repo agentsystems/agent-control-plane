@@ -39,7 +39,8 @@ def refresh_agents():
         )
         for c in containers:
             # Extract name from compose service label or container name
-            name = c.labels.get("com.docker.compose.service", c.name).rstrip("-agent")
+            # Use the service name exactly as defined in docker-compose
+            name = c.labels.get("com.docker.compose.service", c.name)
             port = c.labels.get("agent.port", "8000")
 
             # Get the container's IP on the agents-int network
@@ -79,11 +80,12 @@ def refresh_agents():
 
 
 def ensure_agent_running(agent: str) -> bool:
-    """Return True if the given agent container is running, else False."""
+    """Start the agent container if stopped and return True if running, else False."""
     if not client:
         return agent in AGENTS
 
     try:
+        # First check if already running
         containers = client.containers.list(
             filters={
                 "label": ["agent.enabled=true", f"com.docker.compose.service={agent}"],
@@ -92,17 +94,46 @@ def ensure_agent_running(agent: str) -> bool:
         )
         if containers:
             logger.info(
-                "agent_running", agent=agent, container_id=containers[0].short_id
+                "agent_already_running",
+                agent=agent,
+                container_id=containers[0].short_id,
             )
             return True
 
-        # Also check by container name
-        containers = client.containers.list(
-            filters={"name": agent, "status": "running"}
+        # Check if container exists but is stopped
+        all_containers = client.containers.list(
+            all=True,
+            filters={
+                "label": ["agent.enabled=true", f"com.docker.compose.service={agent}"],
+            },
         )
-        if containers and containers[0].labels.get("agent.enabled") == "true":
-            logger.info("agent_running_by_name", agent=agent)
-            return True
+
+        if all_containers:
+            container = all_containers[0]
+            if container.status != "running":
+                logger.info(
+                    "starting_agent_container",
+                    agent=agent,
+                    container_id=container.short_id,
+                )
+                container.start()
+                # Wait a moment for container to start
+                import time
+
+                time.sleep(2)
+                return True
+
+        # Also check by container name
+        containers = client.containers.list(all=True, filters={"name": agent})
+        for container in containers:
+            if container.labels.get("agent.enabled") == "true":
+                if container.status != "running":
+                    logger.info("starting_agent_by_name", agent=agent)
+                    container.start()
+                    import time
+
+                    time.sleep(2)
+                return True
 
     except Exception as e:
         logger.error("ensure_agent_running_failed", agent=agent, error=str(e))
