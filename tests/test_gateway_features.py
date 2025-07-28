@@ -18,9 +18,28 @@ if str(_repo_root) not in sys.path:
 
 # Register package structure BEFORE loading the module
 pkg = types.ModuleType("cmd")
+pkg.__path__ = [str(_repo_root / "cmd")]
 subpkg = types.ModuleType("cmd.gateway")
+subpkg.__path__ = [str(_repo_root / "cmd" / "gateway")]
 sys.modules["cmd"] = pkg
 sys.modules["cmd.gateway"] = subpkg
+
+# Pre-register all gateway submodules so imports work
+for module_name in [
+    "models",
+    "exceptions",
+    "docker_discovery",
+    "proxy",
+    "database",
+    "egress",
+    "lifecycle",
+]:
+    module_path = _repo_root / "cmd" / "gateway" / f"{module_name}.py"
+    if module_path.exists():
+        spec = _util.spec_from_file_location(f"cmd.gateway.{module_name}", module_path)
+        if spec and spec.loader:
+            module = _util.module_from_spec(spec)
+            sys.modules[f"cmd.gateway.{module_name}"] = module
 
 # Now we can safely load the module since the package structure exists
 _gateway_path = _repo_root / "cmd" / "gateway" / "main.py"
