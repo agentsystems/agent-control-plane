@@ -55,7 +55,7 @@ async def init_db():
         return
 
     # Create extension/table if absent (idempotent)
-    async with database.database.DB_POOL.acquire() as conn:
+    async with database.DB_POOL.acquire() as conn:
         await conn.execute(
             """
         CREATE EXTENSION IF NOT EXISTS "pgcrypto";

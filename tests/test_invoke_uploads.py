@@ -14,19 +14,28 @@ from fastapi.testclient import TestClient
 # can monkeypatch its globals easily without altering PYTHONPATH.
 # ---------------------------------------------------------------------------
 _repo_root = Path(__file__).resolve().parents[1]
-_gateway_path = _repo_root / "cmd" / "gateway" / "main.py"
-_spec = _util.spec_from_file_location("agent_gateway", _gateway_path)
-assert _spec and _spec.loader
-gw = _util.module_from_spec(_spec)  # type: ignore
-_spec.loader.exec_module(gw)  # type: ignore
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
+# Register package structure BEFORE loading the module
 _pkg = types.ModuleType("cmd")
 _subpkg = types.ModuleType("cmd.gateway")
-_subpkg.main = gw
-_pkg.gateway = _subpkg
 sys.modules.setdefault("cmd", _pkg)
 sys.modules.setdefault("cmd.gateway", _subpkg)
+
+# Now we can safely load the module since the package structure exists
+_gateway_path = _repo_root / "cmd" / "gateway" / "main.py"
+_spec = _util.spec_from_file_location("cmd.gateway.main", _gateway_path)
+assert _spec and _spec.loader
+gw = _util.module_from_spec(_spec)  # type: ignore
 sys.modules.setdefault("cmd.gateway.main", gw)
+
+# Execute the module now that all the module hierarchy is set up
+_spec.loader.exec_module(gw)  # type: ignore
+
+# Also register as _subpkg.main for backward compatibility
+_subpkg.main = gw
+_pkg.gateway = _subpkg
 
 
 # ---------------------------------------------------------------------------

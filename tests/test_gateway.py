@@ -12,20 +12,24 @@ repo_root = Path(__file__).resolve().parents[1]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
-_gateway_path = repo_root / "cmd" / "gateway" / "main.py"
-_spec = _util.spec_from_file_location("agent_gateway", _gateway_path)
-assert _spec and _spec.loader  # ensure module spec found
-gw = _util.module_from_spec(_spec)  # type: ignore
-_spec.loader.exec_module(gw)
-# Register under expected package path for coverage collection
-
+# Register package structure BEFORE loading the module
 pkg = types.ModuleType("cmd")
 subpkg = types.ModuleType("cmd.gateway")
-subpkg.main = gw
-pkg.gateway = subpkg
 sys.modules["cmd"] = pkg
 sys.modules["cmd.gateway"] = subpkg
+
+# Now we can safely load the module since the package structure exists
+_gateway_path = repo_root / "cmd" / "gateway" / "main.py"
+_spec = _util.spec_from_file_location("cmd.gateway.main", _gateway_path)
+assert _spec and _spec.loader  # ensure module spec found
+gw = _util.module_from_spec(_spec)  # type: ignore
 sys.modules["cmd.gateway.main"] = gw
+
+# Execute the module now that all the module hierarchy is set up
+_spec.loader.exec_module(gw)
+
+# Also register as subpkg.main for backward compatibility
+subpkg.main = gw
 
 
 class _StubContainer:

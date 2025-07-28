@@ -13,20 +13,28 @@ from fastapi.testclient import TestClient
 
 # Dynamically load the gateway module from source path (avoids install step)
 _repo_root = Path(__file__).resolve().parents[1]
-_gateway_path = _repo_root / "cmd" / "gateway" / "main.py"
-_spec = _util.spec_from_file_location("agent_gateway", _gateway_path)
-assert _spec and _spec.loader, "Failed to locate gateway source file"
-gw = _util.module_from_spec(_spec)  # type: ignore
-_spec.loader.exec_module(gw)  # type: ignore[attr-defined]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
-# Expose module under the expected import path so internal relative imports work
+# Register package structure BEFORE loading the module
 pkg = types.ModuleType("cmd")
 subpkg = types.ModuleType("cmd.gateway")
-subpkg.main = gw
-pkg.gateway = subpkg
 sys.modules["cmd"] = pkg
 sys.modules["cmd.gateway"] = subpkg
+
+# Now we can safely load the module since the package structure exists
+_gateway_path = _repo_root / "cmd" / "gateway" / "main.py"
+_spec = _util.spec_from_file_location("cmd.gateway.main", _gateway_path)
+assert _spec and _spec.loader, "Failed to locate gateway source file"
+gw = _util.module_from_spec(_spec)  # type: ignore
 sys.modules["cmd.gateway.main"] = gw
+
+# Execute the module now that all the module hierarchy is set up
+_spec.loader.exec_module(gw)  # type: ignore[attr-defined]
+
+# Also register as subpkg.main for backward compatibility
+subpkg.main = gw
+pkg.gateway = subpkg
 
 
 class _StubContainer:
