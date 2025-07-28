@@ -67,6 +67,10 @@ class _StubContainer:
         "agent.port": "7000",
     }
     name = "foo_container"
+    short_id = "abc123"
+    attrs = {
+        "NetworkSettings": {"Networks": {"agents-int": {"IPAddress": "172.20.0.2"}}}
+    }
 
 
 class _StubContainers:
@@ -82,7 +86,7 @@ def test_refresh_agents_updates_cache(monkeypatch):
     """refresh_agents should populate AGENTS dict from Docker labels."""
     monkeypatch.setattr(gw.docker_discovery, "client", _StubClient())
     gw.docker_discovery.refresh_agents()
-    assert gw.docker_discovery.AGENTS == {"foo": "http://foo:7000/invoke"}
+    assert gw.docker_discovery.AGENTS == {"foo": "http://172.20.0.2:7000/invoke"}
 
 
 def test_health_endpoint(monkeypatch):

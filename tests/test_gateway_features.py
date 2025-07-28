@@ -75,7 +75,15 @@ class _StubContainer:
             "agent.port": port,
         }
         self.name = f"{name}_container"
+        self.short_id = f"{name[:6]}_id"
         self._started = False
+        self.attrs = {
+            "NetworkSettings": {
+                "Networks": {
+                    "agents-int": {"IPAddress": f"172.20.0.{ord(name[0]) % 10 + 2}"}
+                }
+            }
+        }
 
     # Gateway only calls .start() on ensure_agent_running
     def start(self):  # noqa: D401 – stub method
@@ -181,7 +189,7 @@ def test_ensure_agent_running_starts_container(monkeypatch, restore_globals):
         else:
             gw.docker_discovery.AGENTS[target] = "http://baz:8000/invoke"
 
-    monkeypatch.setattr(gw, "refresh_agents", _fake_refresh)
+    monkeypatch.setattr(gw.docker_discovery, "refresh_agents", _fake_refresh)
 
     # Patch time.sleep to avoid real delay
     monkeypatch.setattr(gw.time, "sleep", lambda x: None)
@@ -232,14 +240,14 @@ def test_idle_reaper_stops_idle_containers(monkeypatch, restore_globals):
         # Always yield control immediately without real delay
         await _orig_sleep(0)
 
-    monkeypatch.setattr(gw.asyncio, "sleep", _fast_sleep)
+    monkeypatch.setattr(gw.lifecycle.asyncio, "sleep", _fast_sleep)
 
     # Run _idle_reaper coroutine for a single iteration via asyncio.run
     import asyncio
 
     async def _run_once():
         """Run _idle_reaper briefly allowing at least one iteration."""
-        task = asyncio.create_task(gw._idle_reaper())
+        task = asyncio.create_task(gw.lifecycle.idle_reaper())
         # Yield control a few times so the reaper has a chance to execute and call stop()
         for _ in range(10):
             await asyncio.sleep(0)
