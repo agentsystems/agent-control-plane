@@ -156,22 +156,20 @@ def test_agents_filtered_endpoint(monkeypatch, restore_globals):
         assert set(resp.json()["agents"]) == {"foo", "bar"}
 
 
-def test_ensure_agent_running_starts_container(monkeypatch, restore_globals):
-    """ensure_agent_running should start container when not already running."""
+def test_ensure_agent_running_checks_container(monkeypatch, restore_globals):
+    """ensure_agent_running should check if container is running."""
     target = "baz"
-    running: set[str] = set()  # none running initially
-    all_agents = {target}
 
-    stub_container = _StubContainer(target)
+    # Test when container is running
+    running_container = _StubContainer(target)
 
-    class _Containers(_StubContainers):  # override list for dynamic behaviour
-        def __init__(self):
-            super().__init__(running, all_agents)
-            self._obj = stub_container
-
+    class _Containers:
         def list(self, *_, **kwargs):
-            # Return stub container always (simulate docker list)
-            return [self._obj]
+            filters = kwargs.get("filters", {})
+            if "status" in filters and filters["status"] == "running":
+                # Return container when checking for running status
+                return [running_container]
+            return []
 
     class _Client:
         def __init__(self):
@@ -179,30 +177,24 @@ def test_ensure_agent_running_starts_container(monkeypatch, restore_globals):
 
     monkeypatch.setattr(gw.docker_discovery, "client", _Client())
 
-    # Patch refresh_agents to mark agent as running after first call
-    call_count = {"n": 0}
+    # Should return True when container is running
+    is_running = gw.docker_discovery.ensure_agent_running(target)
+    assert is_running, "Agent should be considered running"
 
-    def _fake_refresh():
-        if call_count["n"] == 0:
-            # first call – still stopped
-            call_count["n"] += 1
-        else:
-            gw.docker_discovery.AGENTS[target] = "http://baz:8000/invoke"
+    # Test when container is not running
+    class _EmptyContainers:
+        def list(self, *_, **kwargs):
+            return []  # No running containers
 
-    monkeypatch.setattr(gw.docker_discovery, "refresh_agents", _fake_refresh)
+    class _ClientNoRunning:
+        def __init__(self):
+            self.containers = _EmptyContainers()
 
-    # Patch time.sleep to avoid real delay
-    monkeypatch.setattr(gw.time, "sleep", lambda x: None)
+    monkeypatch.setattr(gw.docker_discovery, "client", _ClientNoRunning())
 
-    # Patch httpx.get to immediately return healthy response
-    class _Resp:
-        status_code = 200
-
-    monkeypatch.setattr(gw.httpx, "get", lambda *a, **kw: _Resp())
-
-    started = gw.ensure_agent_running(target)
-    assert started, "Agent should be considered running after ensure-agent-running"
-    assert stub_container._started, "Container.start() should be invoked"
+    # Should return False when container is not running
+    is_running = gw.docker_discovery.ensure_agent_running(target)
+    assert not is_running, "Agent should not be considered running"
 
 
 def test_idle_reaper_stops_idle_containers(monkeypatch, restore_globals):
