@@ -333,6 +333,9 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
     thread_id = str(uuid.uuid4())
     await database.insert_job_row(thread_id, agent, auth)
 
+    # Audit logging: record the incoming request
+    await database.audit_invoke_request(auth, thread_id, agent, payload)
+
     # ------------------------------------------------------------------
     # Stage uploaded file(s) into artifacts volume if present
     # ------------------------------------------------------------------
@@ -432,6 +435,10 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                 ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 result=resp_json,
             )
+            # Audit logging: record successful response
+            await database.audit_invoke_response(
+                auth, thread_id, agent, r.status_code, resp_json
+            )
             # Ensure thread id for compatibility
             resp_json.setdefault("thread_id", thread_id)
             return resp_json
@@ -441,6 +448,10 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                 state=INV_STATE_FAILED,
                 ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 error={"message": str(e)},
+            )
+            # Audit logging: record error response
+            await database.audit_invoke_response(
+                auth, thread_id, agent, 500, error_msg=str(e)
             )
             raise
 
@@ -468,6 +479,11 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                     # Provide clearer message when agent returns non-JSON (e.g. 403 text)
                     parsed = None
                 if r.status_code >= 400 or parsed is None:
+                    error_msg = (
+                        "agent attempted outbound request to non-allowlisted URL"
+                        if r.status_code == 403
+                        else "agent returned non-JSON or error status"
+                    )
                     await database.update_job_record(
                         thread_id,
                         state=INV_STATE_FAILED,
@@ -477,12 +493,12 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                         error={
                             "status": r.status_code,
                             "body": r.text[:500],  # truncate large bodies
-                            "message": (
-                                "agent attempted outbound request to non-allowlisted URL"
-                                if r.status_code == 403
-                                else "agent returned non-JSON or error status"
-                            ),
+                            "message": error_msg,
                         },
+                    )
+                    # Audit logging: record error response
+                    await database.audit_invoke_response(
+                        auth, thread_id, agent, r.status_code, error_msg=error_msg
                     )
                 else:
                     await database.update_job_record(
@@ -493,12 +509,20 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                         ).isoformat(),
                         result=parsed,
                     )
+                    # Audit logging: record successful response
+                    await database.audit_invoke_response(
+                        auth, thread_id, agent, r.status_code, parsed
+                    )
             except Exception as e:
                 await database.update_job_record(
                     thread_id,
                     state=INV_STATE_FAILED,
                     ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     error={"message": str(e)},
+                )
+                # Audit logging: record error response
+                await database.audit_invoke_response(
+                    auth, thread_id, agent, 500, error_msg=str(e)
                 )
 
     asyncio.create_task(_worker())

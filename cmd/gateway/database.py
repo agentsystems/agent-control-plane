@@ -1,6 +1,7 @@
 """Database operations for the Agent Gateway."""
 
 import os
+import json
 from typing import Optional, Dict, Any
 import asyncpg
 import structlog
@@ -168,3 +169,67 @@ def get_memory_jobs() -> Dict[str, Dict[str, Any]]:
         Copy of all jobs stored in memory when database is unavailable
     """
     return JOBS.copy()
+
+
+async def audit_invoke_request(
+    user_token: str, thread_id: str, agent: str, payload: Dict[str, Any]
+) -> None:
+    """Log an incoming agent invocation request to audit_log.
+
+    Args:
+        user_token: Bearer token of the user making the request
+        thread_id: UUID of the invocation
+        agent: Name of the agent being invoked
+        payload: Request payload to be logged
+    """
+    if DB_POOL:
+        try:
+            await DB_POOL.execute(
+                """INSERT INTO audit_log (user_token, thread_id, actor, action, resource, status_code, payload)
+                     VALUES ($1,$2,'gateway','invoke_request',$3,0,$4)""",
+                user_token,
+                thread_id,
+                f"{agent}/invoke",
+                json.dumps(payload) if payload else None,
+            )
+        except Exception as e:
+            logger.warning(
+                "audit_log_insert_failed", error=str(e), action="invoke_request"
+            )
+
+
+async def audit_invoke_response(
+    user_token: str,
+    thread_id: str,
+    agent: str,
+    status_code: int,
+    payload: Optional[Dict[str, Any]] = None,
+    error_msg: Optional[str] = None,
+) -> None:
+    """Log an agent invocation response to audit_log.
+
+    Args:
+        user_token: Bearer token of the user making the request
+        thread_id: UUID of the invocation
+        agent: Name of the agent that responded
+        status_code: HTTP status code of the response
+        payload: Response payload to be logged (optional)
+        error_msg: Error message if the invocation failed (optional)
+    """
+    if DB_POOL:
+        try:
+            await DB_POOL.execute(
+                """INSERT INTO audit_log (user_token, thread_id, actor, action, resource, status_code, payload, error_msg)
+                     VALUES ($1,$2,$3,'invoke_response',$4,$5,$6,$7)""",
+                user_token,
+                thread_id,
+                agent,
+                f"{agent}/invoke",
+                status_code,
+                json.dumps(payload) if payload else None,
+                error_msg,
+            )
+        except Exception as e:
+            logger.warning(
+                "audit_log_insert_failed", error=str(e), action="invoke_response"
+            )
