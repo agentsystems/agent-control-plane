@@ -14,12 +14,21 @@ LAST_SEEN: Dict[str, datetime.datetime] = {}
 
 
 def record_agent_activity(agent: str) -> None:
-    """Record that an agent was just invoked."""
+    """Record that an agent was just invoked.
+
+    Args:
+        agent: Name of the agent that was invoked
+    """
     LAST_SEEN[agent] = datetime.datetime.now(datetime.timezone.utc)
 
 
 async def idle_reaper() -> None:
-    """Background task that stops idle containers based on configured timeouts."""
+    """Background task that stops idle containers based on configured timeouts.
+
+    Runs continuously, checking every minute for containers that have been
+    idle longer than their configured timeout. Requires Docker client to be
+    available.
+    """
     if docker_discovery.client is None:
         logger.info("idle_reaper_disabled_no_docker")
         return
@@ -33,7 +42,12 @@ async def idle_reaper() -> None:
 
 
 async def _check_and_stop_idle_containers() -> None:
-    """Check all running containers and stop those that have been idle too long."""
+    """Check all running containers and stop those that have been idle too long.
+
+    Iterates through all agent-enabled containers, checking their last activity
+    time against their configured idle timeout. Stops containers that exceed
+    their timeout.
+    """
     now = datetime.datetime.now(datetime.timezone.utc)
 
     containers = docker_discovery.client.containers.list(
@@ -68,10 +82,18 @@ async def _check_and_stop_idle_containers() -> None:
 
 
 def get_last_seen() -> Dict[str, datetime.datetime]:
-    """Get the last seen times for all agents (for debugging/monitoring)."""
+    """Get the last seen times for all agents (for debugging/monitoring).
+
+    Returns:
+        Dictionary mapping agent names to their last invocation timestamps
+    """
     return LAST_SEEN.copy()
 
 
 def clear_last_seen(agent: str) -> None:
-    """Clear the last seen time for an agent (e.g., when manually stopped)."""
+    """Clear the last seen time for an agent (e.g., when manually stopped).
+
+    Args:
+        agent: Name of the agent to clear from tracking
+    """
     LAST_SEEN.pop(agent, None)

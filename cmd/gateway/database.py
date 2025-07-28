@@ -25,7 +25,14 @@ JOBS: Dict[str, Dict[str, Any]] = {}
 
 
 async def init_pool(retries: int = 10) -> bool:
-    """Initialize the database connection pool."""
+    """Initialize the database connection pool.
+
+    Args:
+        retries: Number of connection attempts before giving up
+
+    Returns:
+        True if pool was successfully created, False otherwise
+    """
     global DB_POOL
 
     while retries:
@@ -53,8 +60,12 @@ async def init_pool(retries: int = 10) -> bool:
     return False
 
 
-async def close_pool():
-    """Close the database connection pool."""
+async def close_pool() -> None:
+    """Close the database connection pool.
+
+    Gracefully closes the connection pool if it exists.
+    Logs a warning if the close operation fails.
+    """
     global DB_POOL
     if DB_POOL is not None:
         try:
@@ -65,7 +76,11 @@ async def close_pool():
 
 
 async def check_connection() -> bool:
-    """Check if database connection is available."""
+    """Check if database connection is available.
+
+    Returns:
+        True if database is reachable, False otherwise
+    """
     if DB_POOL is None:
         return False
 
@@ -77,8 +92,13 @@ async def check_connection() -> bool:
         return False
 
 
-async def update_job_record(thread_id: str, **fields):
-    """Update job fields in database or memory."""
+async def update_job_record(thread_id: str, **fields) -> None:
+    """Update job fields in database or memory.
+
+    Args:
+        thread_id: UUID of the job to update
+        **fields: Arbitrary fields to update (e.g., state, result, error)
+    """
     if DB_POOL:
         # Build the SET clause dynamically
         await DB_POOL.execute(
@@ -93,8 +113,14 @@ async def update_job_record(thread_id: str, **fields):
         JOBS[thread_id].update(fields)
 
 
-async def insert_job_row(thread_id: str, agent: str, user_token: str):
-    """Insert a new job record."""
+async def insert_job_row(thread_id: str, agent: str, user_token: str) -> None:
+    """Insert a new job record.
+
+    Args:
+        thread_id: UUID for the new job
+        agent: Name of the agent handling this job
+        user_token: Bearer token of the user making the request
+    """
     if DB_POOL:
         await DB_POOL.execute(
             """
@@ -117,7 +143,14 @@ async def insert_job_row(thread_id: str, agent: str, user_token: str):
 
 
 async def get_job(thread_id: str) -> Optional[Dict[str, Any]]:
-    """Retrieve job record from database or memory."""
+    """Retrieve job record from database or memory.
+
+    Args:
+        thread_id: UUID of the job to retrieve
+
+    Returns:
+        Dictionary containing job data or None if not found
+    """
     if DB_POOL:
         row = await DB_POOL.fetchrow(
             "SELECT * FROM invocations WHERE thread_id = $1", thread_id
@@ -129,5 +162,9 @@ async def get_job(thread_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_memory_jobs() -> Dict[str, Dict[str, Any]]:
-    """Get all jobs from memory store (for debugging/status)."""
+    """Get all jobs from memory store (for debugging/status).
+
+    Returns:
+        Copy of all jobs stored in memory when database is unavailable
+    """
     return JOBS.copy()

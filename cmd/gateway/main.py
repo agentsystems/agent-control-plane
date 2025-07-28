@@ -3,6 +3,7 @@ import os
 import uuid
 import json
 from fastapi import UploadFile
+from typing import Dict, List, Any
 
 import httpx
 import structlog
@@ -41,7 +42,14 @@ docker_discovery.refresh_agents()
 
 # background watcher (optional)
 @app.on_event("startup")
-async def init_db():
+async def init_db() -> None:
+    """Initialize database and proxy server on application startup.
+
+    - Loads egress allowlist from configuration
+    - Starts the HTTP CONNECT proxy server
+    - Initializes database connection pool
+    - Creates required database tables if missing
+    """
     # Load outbound egress allowlist into memory once the app starts
     egress.load_egress_allowlist()
 
@@ -90,7 +98,12 @@ async def init_db():
 
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
+    """Start background tasks on application startup.
+
+    - Starts Docker container discovery watcher
+    - Starts idle container reaper task
+    """
     # Start Docker watching in the background
     asyncio.create_task(docker_discovery.watch_docker())
 
@@ -99,8 +112,18 @@ async def startup_event():
 
 
 @app.get("/{agent}/docs", response_class=HTMLResponse)
-async def proxy_docs(agent: str):
-    """Serve the FastAPI Swagger UI of a given agent through the gateway."""
+async def proxy_docs(agent: str) -> HTMLResponse:
+    """Serve the FastAPI Swagger UI of a given agent through the gateway.
+
+    Args:
+        agent: Name of the agent whose docs to serve
+
+    Returns:
+        HTML response containing the agent's Swagger UI
+
+    Raises:
+        HTTPException: 404 if agent not found
+    """
     if agent not in docker_discovery.AGENTS:
         raise agent_not_found(agent)
     async with httpx.AsyncClient() as cli:
@@ -110,8 +133,18 @@ async def proxy_docs(agent: str):
 
 
 @app.get("/{agent}/openapi.json", response_class=JSONResponse)
-async def proxy_openapi(agent: str):
-    """Expose the agent's OpenAPI schema so Swagger UI loads correctly."""
+async def proxy_openapi(agent: str) -> JSONResponse:
+    """Expose the agent's OpenAPI schema so Swagger UI loads correctly.
+
+    Args:
+        agent: Name of the agent whose OpenAPI schema to retrieve
+
+    Returns:
+        JSON response containing the agent's OpenAPI specification
+
+    Raises:
+        HTTPException: 404 if agent not found
+    """
     if agent not in docker_discovery.AGENTS:
         raise agent_not_found(agent)
     async with httpx.AsyncClient() as cli:
@@ -120,11 +153,16 @@ async def proxy_openapi(agent: str):
 
 
 @app.get("/agents")
-async def list_agents():
+async def list_agents() -> Dict[str, List[Dict[str, str]]]:
     """Return the names of every discoverable agent.
 
     We refresh on-demand to avoid a race where the background Docker event
     listener temporarily clears docker_discovery.AGENTS right before a request.
+
+    Returns:
+        Dictionary with 'agents' key containing list of agent info:
+        - name: Agent name
+        - state: One of 'running', 'stopped', or 'not-created'
     """
     docker_discovery.refresh_agents()
 
@@ -161,8 +199,15 @@ async def list_agents():
 
 
 @app.post("/agents")
-async def list_agents_filtered(filter: AgentsFilter):
-    """Return agents filtered by state via JSON body."""
+async def list_agents_filtered(filter: AgentsFilter) -> Dict[str, List[str]]:
+    """Return agents filtered by state via JSON body.
+
+    Args:
+        filter: AgentsFilter model with state field ('running', 'idle', or 'all')
+
+    Returns:
+        Dictionary with 'agents' key containing list of agent names
+    """
     docker_discovery.refresh_agents()
     running_set = set(docker_discovery.AGENTS.keys())
     configured_set = docker_discovery.CONFIGURED_AGENT_NAMES
@@ -199,7 +244,15 @@ async def list_agents_filtered(filter: AgentsFilter):
 
 
 @app.get("/agents/{agent}")
-async def agent_detail(agent: str):
+async def agent_detail(agent: str) -> Dict[str, Any]:
+    """Get detailed metadata for a specific agent.
+
+    Args:
+        agent: Name of the agent
+
+    Returns:
+        Agent metadata or error dictionary if agent not found
+    """
     if agent not in docker_discovery.AGENTS:
         return {"error": "unknown agent"}
     async with httpx.AsyncClient() as cli:
@@ -213,11 +266,21 @@ async def agent_detail(agent: str):
 
 
 @app.post("/invoke/{agent}")
-async def invoke_async(agent: str, request: Request):
+async def invoke_async(agent: str, request: Request) -> Dict[str, str]:
     """Async-first invocation.
 
     Returns immediately with thread_id and status URL. A background task will
     forward the call to the target agent and persist the result.
+
+    Args:
+        agent: Name of the agent to invoke
+        request: FastAPI request containing JSON payload and optional file uploads
+
+    Returns:
+        Dictionary with thread_id, status_url, and result_url
+
+    Raises:
+        HTTPException: 404 if agent not found, 400 if missing bearer token
     """
     # Refresh cache; if agent not running, attempt lazy start. Only containers
     # labelled as agents will be started – if no such container exists we 404.
@@ -332,7 +395,8 @@ async def invoke_async(agent: str, request: Request):
             with open(os.path.join(artifacts_dir, fname), "wb") as fh:
                 fh.write(data)
 
-    async def _run_invocation():
+    async def _run_invocation() -> httpx.Response:
+        """Execute the agent invocation and return the response."""
         async with httpx.AsyncClient() as cli:
             return await cli.post(
                 docker_discovery.AGENTS[agent],
@@ -383,7 +447,8 @@ async def invoke_async(agent: str, request: Request):
     # ------------------------------------------------------------------
     # ASYNC mode (default): fire worker and return handle
     # ------------------------------------------------------------------
-    async def _worker():
+    async def _worker() -> None:
+        """Background worker to handle async agent invocation."""
         await database.update_job_record(
             thread_id,
             state=INV_STATE_RUNNING,
@@ -446,8 +511,18 @@ async def invoke_async(agent: str, request: Request):
 
 
 @app.get("/status/{thread_id}")
-async def get_status(thread_id: str):
-    """Lightweight polling endpoint – returns state & progress only."""
+async def get_status(thread_id: str) -> Dict[str, Any]:
+    """Lightweight polling endpoint – returns state & progress only.
+
+    Args:
+        thread_id: UUID of the invocation to check
+
+    Returns:
+        Dictionary with thread_id, state, progress, and error fields
+
+    Raises:
+        HTTPException: 404 if thread_id not found
+    """
     job = await database.get_job(thread_id)
     if not job:
         raise HTTPException(status_code=404, detail="unknown thread_id")
@@ -460,8 +535,18 @@ async def get_status(thread_id: str):
 
 
 @app.get("/result/{thread_id}")
-async def get_result(thread_id: str):
-    """Return final result payload – large artefacts allowed."""
+async def get_result(thread_id: str) -> Dict[str, Any]:
+    """Return final result payload – large artefacts allowed.
+
+    Args:
+        thread_id: UUID of the completed invocation
+
+    Returns:
+        Dictionary with thread_id, result, and error fields
+
+    Raises:
+        HTTPException: 404 if thread_id not found
+    """
     job = await database.get_job(thread_id)
     if not job:
         raise HTTPException(status_code=404, detail="unknown thread_id")
@@ -473,7 +558,19 @@ async def get_result(thread_id: str):
 
 
 @app.post("/progress/{thread_id}")
-async def post_progress(thread_id: str, request: Request):
+async def post_progress(thread_id: str, request: Request) -> Dict[str, bool]:
+    """Update progress for an in-flight invocation.
+
+    Args:
+        thread_id: UUID of the invocation to update
+        request: JSON body containing 'progress' field
+
+    Returns:
+        Dictionary with 'ok' field set to True
+
+    Raises:
+        HTTPException: 400 if missing progress field, 404 if thread_id not found
+    """
     body = await request.json()
     if "progress" not in body:
         raise HTTPException(status_code=400, detail="missing progress field")
@@ -488,8 +585,14 @@ async def post_progress(thread_id: str, request: Request):
 
 
 @app.on_event("shutdown")
-async def _graceful_shutdown():
-    """Ensure DB pool and Docker client are closed on application shutdown."""
+async def _graceful_shutdown() -> None:
+    """Ensure DB pool and Docker client are closed on application shutdown.
+
+    Gracefully closes:
+    - Database connection pool
+    - Proxy server
+    - Docker client
+    """
     await database.close_pool()
     if proxy.PROXY_SERVER is not None:
         try:
@@ -508,14 +611,29 @@ async def _graceful_shutdown():
 
 
 @app.get("/debug/egress-allowlist")
-async def debug_egress_allowlist():
-    """Return the current in-memory egress allowlist."""
+async def debug_egress_allowlist() -> Dict[str, List[str]]:
+    """Return the current in-memory egress allowlist.
+
+    Returns:
+        Dictionary mapping agent names to their allowed URL patterns
+    """
     return egress.get_allowlist()
 
 
 @app.post("/egress")
-async def proxy_egress(request: Request):
-    """Forward outbound HTTP requests on behalf of an agent after allowlist check."""
+async def proxy_egress(request: Request) -> JSONResponse:
+    """Forward outbound HTTP requests on behalf of an agent after allowlist check.
+
+    Args:
+        request: Contains JSON body with url, method, and optional payload
+
+    Returns:
+        JSON response with status_code and body from upstream
+
+    Raises:
+        HTTPException: 400 if missing required fields, 403 if URL not allowlisted,
+                      502 if upstream request fails
+    """
     agent_name = request.headers.get(
         "X-Agent-Name"
     ) or docker_discovery.AGENT_IP_MAP.get(request.client.host)
@@ -551,5 +669,10 @@ async def proxy_egress(request: Request):
 
 
 @app.get("/health")
-async def health():
+async def health() -> Dict[str, Any]:
+    """Health check endpoint.
+
+    Returns:
+        Dictionary with status 'ok' and list of discovered agents
+    """
     return {"status": "ok", "agents": list(docker_discovery.AGENTS.keys())}
