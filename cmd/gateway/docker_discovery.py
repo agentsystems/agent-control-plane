@@ -75,7 +75,10 @@ def refresh_agents():
         AGENT_IP_MAP = ip_map
 
     logger.info(
-        "agents_refreshed", count=len(discovered), agents=list(discovered.keys())
+        "agents_refreshed",
+        count=len(discovered),
+        agents=list(discovered.keys()),
+        ip_map=ip_map,
     )
 
 

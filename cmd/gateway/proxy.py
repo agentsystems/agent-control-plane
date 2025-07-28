@@ -7,7 +7,7 @@ from typing import Optional
 
 import structlog
 
-from .docker_discovery import AGENT_IP_MAP
+from . import docker_discovery
 
 logger = structlog.get_logger()
 
@@ -55,7 +55,15 @@ async def _handle_proxy(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     """Handle a single proxy connection."""
     peer = writer.get_extra_info("peername")
     peer_ip = peer[0] if peer else ""
-    agent = AGENT_IP_MAP.get(peer_ip)
+    agent = docker_discovery.AGENT_IP_MAP.get(peer_ip)
+
+    # Debug logging
+    logger.info(
+        "proxy_connection_debug",
+        peer_ip=peer_ip,
+        agent=agent,
+        ip_map_size=len(docker_discovery.AGENT_IP_MAP),
+    )
 
     try:
         # Read request line
