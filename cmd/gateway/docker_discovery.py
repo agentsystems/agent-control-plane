@@ -2,7 +2,7 @@
 
 import asyncio
 import threading
-from typing import Dict, Set
+from typing import Dict, Set, Optional, Any
 import docker
 import structlog
 
@@ -17,6 +17,7 @@ AGENT_IP_MAP: Dict[str, str] = {}
 CONFIGURED_AGENT_NAMES: Set[str] = set()
 
 # Docker client instance
+client: Optional[docker.DockerClient]
 try:
     client = docker.DockerClient.from_env()
 except Exception as e:
@@ -24,15 +25,15 @@ except Exception as e:
     client = None
 
 
-def refresh_agents():
+def refresh_agents() -> None:
     """Scan all containers for 'agent.enabled=true' labels and populate AGENTS."""
     global AGENTS, AGENT_IP_MAP
     if not client:
         logger.info("skip_agent_discovery_docker_unavailable")
         return
 
-    discovered = {}
-    ip_map = {}
+    discovered: Dict[str, str] = {}
+    ip_map: Dict[str, str] = {}
     try:
         containers = client.containers.list(
             filters={"label": "agent.enabled=true", "status": "running"}
@@ -83,7 +84,14 @@ def refresh_agents():
 
 
 def ensure_agent_running(agent: str) -> bool:
-    """Start the agent container if stopped and return True if running, else False."""
+    """Start the agent container if stopped and return True if running, else False.
+
+    Args:
+        agent: Name of the agent to ensure is running
+
+    Returns:
+        True if agent is running (or was successfully started), False otherwise
+    """
     if not client:
         return agent in AGENTS
 
@@ -144,8 +152,13 @@ def ensure_agent_running(agent: str) -> bool:
     return False
 
 
-async def watch_docker():
-    """Periodically refresh the agent registry from Docker labels."""
+async def watch_docker() -> None:
+    """Periodically refresh the agent registry from Docker labels.
+
+    This coroutine runs in a background task and refreshes the agent
+    registry every 5 seconds by scanning Docker containers for those
+    with 'agent.enabled=true' labels.
+    """
     while True:
         try:
             refresh_agents()
@@ -154,14 +167,25 @@ async def watch_docker():
         await asyncio.sleep(5)
 
 
-def set_configured_agent_names(names: Set[str]):
-    """Update the set of configured agent names from agentsystems-config.yml."""
+def set_configured_agent_names(names: Set[str]) -> None:
+    """Update the set of configured agent names from agentsystems-config.yml.
+
+    Args:
+        names: Set of agent names defined in the configuration file
+    """
     global CONFIGURED_AGENT_NAMES
     CONFIGURED_AGENT_NAMES = names
 
 
-def get_all_agent_info() -> Dict[str, Dict[str, any]]:
-    """Get information about all agents (both running and configured)."""
+def get_all_agent_info() -> Dict[str, Dict[str, Any]]:
+    """Get information about all agents (both running and configured).
+
+    Returns:
+        Dictionary mapping agent names to their information including:
+        - name: Agent name
+        - state: Either 'running' or 'configured'
+        - url: Target URL for invocation (None if not running)
+    """
     agent_info = {}
 
     # Add running agents

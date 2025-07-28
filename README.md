@@ -14,8 +14,19 @@ The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer th
 
 | Path | Purpose |
 |------|---------|
-| `cmd/gateway/` | FastAPI gateway & reverse-proxy (discovers agents via Docker labels). |
-| `Dockerfile` | Container image build instructions. |
+| `cmd/gateway/` | FastAPI gateway & reverse-proxy (modularized components) |
+| ├── `main.py` | Core FastAPI application and endpoints |
+| ├── `database.py` | PostgreSQL connection pooling and job management |
+| ├── `docker_discovery.py` | Docker container discovery and agent registration |
+| ├── `egress.py` | Egress allowlist configuration and management |
+| ├── `lifecycle.py` | Container idle timeout and lifecycle management |
+| ├── `proxy.py` | HTTP CONNECT proxy server for agent egress |
+| ├── `models.py` | Pydantic data models |
+| └── `exceptions.py` | Common HTTP exception patterns |
+| `Dockerfile` | Container image build instructions |
+| `tests/` | Unit tests for gateway functionality |
+| `.coveragerc` | Test coverage configuration |
+| `CHANGELOG.md` | Version history and changes |
 
 ---
 
@@ -65,9 +76,19 @@ make up    # gateway + Postgres + hello-world-agent
 ```bash
 cd agent-control-plane
 python -m venv .venv && source .venv/bin/activate
-pip install -e .[dev]
+pip install -r requirements-dev.txt
 # override port via env if desired
 ACP_BIND_PORT=8088 uvicorn cmd.gateway.main:app --reload --port ${ACP_BIND_PORT:-8080}
+```
+
+### Running tests
+
+```bash
+# Run all tests with coverage
+pytest --cov=cmd --cov-report=term-missing
+
+# Run specific test file
+pytest tests/test_gateway.py -v
 ```
 
 ---
@@ -142,6 +163,9 @@ The gateway automatically:
 | `ACP_MAX_UPLOAD_MB` | `200` | Maximum file upload size in MB |
 | `ACP_BIND_PORT` | `8080` | Gateway listen port inside container |
 | `ACP_AUDIT_DSN` | `postgresql://...` | Postgres connection for audit logs |
+| `ACP_PROXY_PORT` | `3128` | HTTP CONNECT proxy port for agent egress |
+| `ACP_IDLE_TIMEOUT_MIN` | `15` | Default idle timeout for containers (minutes) |
+| `AGENTSYSTEMS_CONFIG_PATH` | `/etc/agentsystems/agentsystems-config.yml` | Path to agent configuration file |
 
 ### Accessing Artifacts
 
@@ -191,9 +215,41 @@ The gateway detects when the host Docker socket is absent (e.g. CI) and graceful
 
 ---
 
+## Architecture
+
+### Module Structure
+
+The gateway is organized into focused modules:
+
+- **`main.py`**: FastAPI application, request routing, and API endpoints
+- **`docker_discovery.py`**: Container discovery via Docker labels, maintains agent registry
+- **`database.py`**: PostgreSQL operations with automatic fallback to in-memory storage
+- **`egress.py`**: Loads and manages per-agent egress allowlists from config
+- **`proxy.py`**: HTTP CONNECT proxy server for controlled agent outbound requests
+- **`lifecycle.py`**: Monitors agent activity and stops idle containers
+- **`models.py`**: Shared Pydantic models for request/response validation
+- **`exceptions.py`**: Standardized HTTP exception factories
+
+### Key Features
+
+1. **Auto-discovery**: Finds agents by Docker labels (`agent.enabled=true`)
+2. **Lazy start**: Automatically starts stopped agent containers on first request
+3. **Idle management**: Stops containers after configurable idle timeout
+4. **Egress control**: HTTP proxy restricts agent outbound requests to allowlisted URLs
+5. **File uploads**: Handles multipart uploads with automatic artifact management
+6. **Async by default**: Non-blocking invocations with status polling
+7. **Type safety**: Full type hints for better IDE support and early error detection
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on contributing to this project.
+
+### Development Guidelines
+
+- Add type hints to all new functions
+- Include docstrings for public APIs
+- Update CHANGELOG.md for notable changes
+- Run tests before submitting PRs: `pytest`
 
 ---
 

@@ -1,0 +1,19 @@
+[run]
+source = cmd
+branch = True
+omit =
+    */tests/*
+    */__init__.py
+    */alembic/*
+    .venv/*
+
+[report]
+precision = 2
+show_missing = True
+skip_covered = False
+
+[html]
+directory = htmlcov
+
+[xml]
+output = coverage.xml

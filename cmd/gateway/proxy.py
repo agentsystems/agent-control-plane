@@ -19,7 +19,7 @@ PROXY_SERVER: Optional[asyncio.base_events.Server] = None
 EGRESS_ALLOWLIST: dict[str, list[str]] = {}
 
 
-async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     """Bidirectional pipe between two streams."""
     try:
         while True:
@@ -51,7 +51,9 @@ def _is_allowed(agent: str, url: str) -> bool:
     return False
 
 
-async def _handle_proxy(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+async def _handle_proxy(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
     """Handle a single proxy connection."""
     peer = writer.get_extra_info("peername")
     peer_ip = peer[0] if peer else ""
@@ -166,20 +168,20 @@ async def _handle_proxy(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             pass
 
 
-async def _start_proxy_server():
+async def _start_proxy_server() -> None:
     """Start the HTTP CONNECT proxy server."""
     global PROXY_SERVER
     PROXY_SERVER = await asyncio.start_server(_handle_proxy, "0.0.0.0", PROXY_PORT)
     logger.info("proxy_server_started", port=PROXY_PORT)
 
 
-async def _proxy_bg():
+async def _proxy_bg() -> None:
     """Background task to run the proxy server."""
     await _start_proxy_server()
     await PROXY_SERVER.serve_forever()
 
 
-def set_egress_allowlist(allowlist: dict[str, list[str]]):
+def set_egress_allowlist(allowlist: dict[str, list[str]]) -> None:
     """Update the egress allowlist from configuration."""
     global EGRESS_ALLOWLIST
     EGRESS_ALLOWLIST = allowlist
