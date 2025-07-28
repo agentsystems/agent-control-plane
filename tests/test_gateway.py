@@ -20,22 +20,31 @@ subpkg.__path__ = [str(repo_root / "cmd" / "gateway")]
 sys.modules["cmd"] = pkg
 sys.modules["cmd.gateway"] = subpkg
 
-# Pre-register all gateway submodules so imports work
-for module_name in [
-    "models",
-    "exceptions",
-    "docker_discovery",
-    "proxy",
-    "database",
-    "egress",
-    "lifecycle",
-]:
+# Pre-register and load all gateway submodules so imports work
+# Load modules in dependency order
+modules_to_load = [
+    "models",  # No dependencies
+    "exceptions",  # No dependencies
+    "egress",  # No dependencies
+    "database",  # No dependencies
+    "docker_discovery",  # Depends on models
+    "proxy",  # Depends on egress
+    "lifecycle",  # Depends on docker_discovery and egress
+]
+
+for module_name in modules_to_load:
     module_path = repo_root / "cmd" / "gateway" / f"{module_name}.py"
     if module_path.exists():
         spec = _util.spec_from_file_location(f"cmd.gateway.{module_name}", module_path)
         if spec and spec.loader:
             module = _util.module_from_spec(spec)
             sys.modules[f"cmd.gateway.{module_name}"] = module
+            try:
+                spec.loader.exec_module(module)
+            except ImportError as e:
+                # Skip modules with unmet dependencies for now
+                print(f"Warning: Could not load {module_name}: {e}")
+                pass
 
 # Now we can safely load the module since the package structure exists
 _gateway_path = repo_root / "cmd" / "gateway" / "main.py"
