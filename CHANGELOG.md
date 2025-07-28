@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent proxy IP mapping not recognizing agents correctly
 - Test import errors after modularization
 - Agent naming inconsistency between configuration and runtime
+- Type hint compatibility issues with test mocks
 
 ### Security
 - Deferred non-root user implementation to avoid breaking existing deployments

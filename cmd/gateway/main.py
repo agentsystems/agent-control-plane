@@ -266,7 +266,7 @@ async def agent_detail(agent: str) -> Dict[str, Any]:
 
 
 @app.post("/invoke/{agent}")
-async def invoke_async(agent: str, request: Request) -> Dict[str, str]:
+async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
     """Async-first invocation.
 
     Returns immediately with thread_id and status URL. A background task will
@@ -395,7 +395,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, str]:
             with open(os.path.join(artifacts_dir, fname), "wb") as fh:
                 fh.write(data)
 
-    async def _run_invocation() -> httpx.Response:
+    async def _run_invocation():
         """Execute the agent invocation and return the response."""
         async with httpx.AsyncClient() as cli:
             return await cli.post(
