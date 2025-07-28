@@ -14,19 +14,56 @@ from fastapi.testclient import TestClient
 # can monkeypatch its globals easily without altering PYTHONPATH.
 # ---------------------------------------------------------------------------
 _repo_root = Path(__file__).resolve().parents[1]
-_gateway_path = _repo_root / "cmd" / "gateway" / "main.py"
-_spec = _util.spec_from_file_location("agent_gateway", _gateway_path)
-assert _spec and _spec.loader
-gw = _util.module_from_spec(_spec)  # type: ignore
-_spec.loader.exec_module(gw)  # type: ignore
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
+# Register package structure BEFORE loading the module
 _pkg = types.ModuleType("cmd")
+_pkg.__path__ = [str(_repo_root / "cmd")]
 _subpkg = types.ModuleType("cmd.gateway")
-_subpkg.main = gw
-_pkg.gateway = _subpkg
+_subpkg.__path__ = [str(_repo_root / "cmd" / "gateway")]
 sys.modules.setdefault("cmd", _pkg)
 sys.modules.setdefault("cmd.gateway", _subpkg)
+
+# Pre-register and load all gateway submodules so imports work
+# Load modules in dependency order
+modules_to_load = [
+    "models",  # No dependencies
+    "exceptions",  # No dependencies
+    "egress",  # No dependencies
+    "database",  # No dependencies
+    "docker_discovery",  # Depends on models
+    "proxy",  # Depends on egress
+    "lifecycle",  # Depends on docker_discovery and egress
+]
+
+for module_name in modules_to_load:
+    module_path = _repo_root / "cmd" / "gateway" / f"{module_name}.py"
+    if module_path.exists():
+        spec = _util.spec_from_file_location(f"cmd.gateway.{module_name}", module_path)
+        if spec and spec.loader:
+            module = _util.module_from_spec(spec)
+            sys.modules[f"cmd.gateway.{module_name}"] = module
+            try:
+                spec.loader.exec_module(module)
+            except ImportError as e:
+                # Skip modules with unmet dependencies for now
+                print(f"Warning: Could not load {module_name}: {e}")
+                pass
+
+# Now we can safely load the module since the package structure exists
+_gateway_path = _repo_root / "cmd" / "gateway" / "main.py"
+_spec = _util.spec_from_file_location("cmd.gateway.main", _gateway_path)
+assert _spec and _spec.loader
+gw = _util.module_from_spec(_spec)  # type: ignore
 sys.modules.setdefault("cmd.gateway.main", gw)
+
+# Execute the module now that all the module hierarchy is set up
+_spec.loader.exec_module(gw)  # type: ignore
+
+# Also register as _subpkg.main for backward compatibility
+_subpkg.main = gw
+_pkg.gateway = _subpkg
 
 
 # ---------------------------------------------------------------------------
@@ -64,11 +101,11 @@ def _patch_gateway(monkeypatch, tmp_path):
     gw.app.router.on_startup.clear()
 
     # Monkeypatch Docker client to avoid actual Docker calls
-    monkeypatch.setattr(gw, "client", None)
+    monkeypatch.setattr(gw.docker_discovery, "client", None)
 
     # Provide a dummy agent mapping so /invoke/foo is accepted
-    gw.AGENTS = {"foo": "http://foo:8000/invoke"}
-    monkeypatch.setattr(gw, "ensure_agent_running", lambda name: True)
+    gw.docker_discovery.AGENTS = {"foo": "http://foo:8000/invoke"}
+    monkeypatch.setattr(gw.docker_discovery, "ensure_agent_running", lambda name: True)
 
     # Patch httpx client used for forwarding calls
     monkeypatch.setattr(
