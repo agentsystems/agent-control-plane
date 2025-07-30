@@ -415,7 +415,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
         await database.update_job_record(
             thread_id,
             state=INV_STATE_RUNNING,
-            started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            started_at=datetime.datetime.now(datetime.timezone.utc),
         )
         try:
             r = await _run_invocation()
@@ -432,7 +432,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
             await database.update_job_record(
                 thread_id,
                 state=INV_STATE_COMPLETED,
-                ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                ended_at=datetime.datetime.now(datetime.timezone.utc),
                 result=resp_json,
             )
             # Audit logging: record successful response
@@ -446,7 +446,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
             await database.update_job_record(
                 thread_id,
                 state=INV_STATE_FAILED,
-                ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                ended_at=datetime.datetime.now(datetime.timezone.utc),
                 error={"message": str(e)},
             )
             # Audit logging: record error response
@@ -463,7 +463,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
         await database.update_job_record(
             thread_id,
             state=INV_STATE_RUNNING,
-            started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            started_at=datetime.datetime.now(datetime.timezone.utc),
         )
         async with httpx.AsyncClient() as cli:
             try:
@@ -487,9 +487,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                     await database.update_job_record(
                         thread_id,
                         state=INV_STATE_FAILED,
-                        ended_at=datetime.datetime.now(
-                            datetime.timezone.utc
-                        ).isoformat(),
+                        ended_at=datetime.datetime.now(datetime.timezone.utc),
                         error={
                             "status": r.status_code,
                             "body": r.text[:500],  # truncate large bodies
@@ -504,10 +502,8 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                     await database.update_job_record(
                         thread_id,
                         state=INV_STATE_COMPLETED,
-                        ended_at=datetime.datetime.now(
-                            datetime.timezone.utc
-                        ).isoformat(),
-                        result=parsed,
+                        ended_at=datetime.datetime.now(datetime.timezone.utc),
+                        result=json.dumps(parsed),
                     )
                     # Audit logging: record successful response
                     await database.audit_invoke_response(
@@ -517,8 +513,8 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                 await database.update_job_record(
                     thread_id,
                     state=INV_STATE_FAILED,
-                    ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    error={"message": str(e)},
+                    ended_at=datetime.datetime.now(datetime.timezone.utc),
+                    error=json.dumps({"message": str(e)}),
                 )
                 # Audit logging: record error response
                 await database.audit_invoke_response(
