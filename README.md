@@ -6,7 +6,7 @@ The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer th
 
 * Repo: `agentsystems/agent-control-plane`
 * Image: `agentsystems/agent-control-plane:<tag>`
-* Part of the multi-repo platform – full picture in the [Mintlify docs](../docs/overview).
+* Part of the multi-repository platform – full picture in the [Mintlify docs](../docs/overview).
 
 ---
 
