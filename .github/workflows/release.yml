@@ -2,27 +2,26 @@ name: Build and Release to GHCR
 
 # Workflow for building and releasing agent-control-plane Docker images to GitHub Container Registry
 #
-# Triggers:
-# - Push to main: builds and pushes with 'main' tag
-# - Version tags (v*): builds and pushes versioned images with 'latest' tag
-# - Manual dispatch: build specific version or branch
+# Manual workflow dispatch only - similar to SDK's PyPI release process
+# No automatic triggers on push/merge/tag
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
-  pull_request:
-    branches:
-      - main
+  # Manual trigger ONLY - no automatic builds
   workflow_dispatch:
     inputs:
       version:
         description: 'Version to build (e.g., 0.3.0 or v0.3.0)'
-        required: false
+        required: true
       push:
         description: 'Push to registry'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      tag_release:
+        description: 'Create git tag and GitHub release (only if push is true)'
         required: true
         default: 'false'
         type: choice
@@ -49,20 +48,10 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          # Priority: workflow input > tag > git describe
-          if [[ -n "${{ github.event.inputs.version }}" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"
-          elif [[ "${{ github.ref }}" == refs/heads/main ]]; then
-            VERSION="main"
-          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            VERSION="pr-${{ github.event.pull_request.number }}"
-          else
-            VERSION="$(git describe --tags --always)"
-          fi
+          # Use workflow input (required)
+          VERSION="${{ github.event.inputs.version }}"
 
-          # Normalize version (remove 'v' prefix for Docker tags)
+          # Normalize version (remove 'v' prefix for Docker tags if present)
           DOCKER_VERSION="${VERSION#v}"
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -78,8 +67,8 @@ jobs:
           # Build tag list based on context
           TAGS="${IMAGE}:${DOCKER_VERSION}"
 
-          # Add 'latest' tag for stable releases
-          if [[ "${{ github.ref }}" == refs/tags/v* ]] && [[ ! "${DOCKER_VERSION}" =~ - ]]; then
+          # Add 'latest' tag for stable releases (when tag_release is true)
+          if [[ "${{ github.event.inputs.tag_release }}" == "true" ]] && [[ ! "${DOCKER_VERSION}" =~ - ]]; then
             TAGS="${TAGS},${IMAGE}:latest"
           fi
 
@@ -94,16 +83,8 @@ jobs:
       - name: Determine if should push
         id: push
         run: |
-          # Determine if we should push
-          if [[ "${{ github.event.inputs.push }}" == "true" ]]; then
-            SHOULD_PUSH="true"
-          elif [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            SHOULD_PUSH="true"
-          elif [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ github.ref }}" == refs/heads/main ]]; then
-            SHOULD_PUSH="true"
-          else
-            SHOULD_PUSH="false"
-          fi
+          # Use workflow input for push decision
+          SHOULD_PUSH="${{ github.event.inputs.push }}"
 
           echo "should_push=${SHOULD_PUSH}" >> $GITHUB_OUTPUT
           echo "🚀 Push to registry: ${SHOULD_PUSH}"
@@ -189,7 +170,7 @@ jobs:
 
   create-release:
     needs: [validate, build, verify]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event.inputs.tag_release == 'true' && github.event.inputs.push == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
