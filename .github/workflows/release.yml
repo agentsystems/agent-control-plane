@@ -154,13 +154,20 @@ jobs:
     if: needs.validate.outputs.should_push == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Verify image
         run: |
           # Pull and verify the image exists
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version != 'main' && needs.validate.outputs.version || 'main' }}"
           echo "🔍 Verifying image: ${IMAGE}"
 
-          # For public images, we can pull without authentication
+          # Pull the image (now authenticated for private repos)
           docker pull "${IMAGE}"
 
           # Basic smoke test
