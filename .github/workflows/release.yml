@@ -1,0 +1,285 @@
+name: Build and Release to GHCR
+
+# Workflow for building and releasing agent-control-plane Docker images to GitHub Container Registry
+#
+# Triggers:
+# - Push to main: builds and pushes with 'main' tag
+# - Version tags (v*): builds and pushes versioned images with 'latest' tag
+# - Manual dispatch: build specific version or branch
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 0.3.0 or v0.3.0)'
+        required: false
+      push:
+        description: 'Push to registry'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}  # Will be agentsystems/agent-control-plane
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      docker_tags: ${{ steps.tags.outputs.tags }}
+      should_push: ${{ steps.push.outputs.should_push }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for git describe
+
+      - name: Determine version
+        id: version
+        run: |
+          # Priority: workflow input > tag > git describe
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ "${{ github.ref }}" == refs/heads/main ]]; then
+            VERSION="main"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            VERSION="pr-${{ github.event.pull_request.number }}"
+          else
+            VERSION="$(git describe --tags --always)"
+          fi
+
+          # Normalize version (remove 'v' prefix for Docker tags)
+          DOCKER_VERSION="${VERSION#v}"
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "docker_version=${DOCKER_VERSION}" >> $GITHUB_OUTPUT
+          echo "📦 Version: ${VERSION} (Docker: ${DOCKER_VERSION})"
+
+      - name: Determine Docker tags
+        id: tags
+        run: |
+          DOCKER_VERSION="${{ steps.version.outputs.docker_version }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+
+          # Build tag list based on context
+          TAGS="${IMAGE}:${DOCKER_VERSION}"
+
+          # Add 'latest' tag for stable releases
+          if [[ "${{ github.ref }}" == refs/tags/v* ]] && [[ ! "${DOCKER_VERSION}" =~ - ]]; then
+            TAGS="${TAGS},${IMAGE}:latest"
+          fi
+
+          # Add SHA tag for traceability
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            TAGS="${TAGS},${IMAGE}:sha-${GITHUB_SHA::8}"
+          fi
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "🏷️ Tags: ${TAGS}"
+
+      - name: Determine if should push
+        id: push
+        run: |
+          # Determine if we should push
+          if [[ "${{ github.event.inputs.push }}" == "true" ]]; then
+            SHOULD_PUSH="true"
+          elif [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            SHOULD_PUSH="true"
+          elif [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ github.ref }}" == refs/heads/main ]]; then
+            SHOULD_PUSH="true"
+          else
+            SHOULD_PUSH="false"
+          fi
+
+          echo "should_push=${SHOULD_PUSH}" >> $GITHUB_OUTPUT
+          echo "🚀 Push to registry: ${SHOULD_PUSH}"
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write  # For attestations
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: needs.validate.outputs.should_push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ needs.validate.outputs.should_push == 'true' }}
+          tags: ${{ needs.validate.outputs.docker_tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate attestation
+        if: needs.validate.outputs.should_push == 'true' && github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  verify:
+    needs: [validate, build]
+    if: needs.validate.outputs.should_push == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify image
+        run: |
+          # Pull and verify the image exists
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version != 'main' && needs.validate.outputs.version || 'main' }}"
+          echo "🔍 Verifying image: ${IMAGE}"
+
+          # For public images, we can pull without authentication
+          docker pull "${IMAGE}"
+
+          # Basic smoke test
+          docker run --rm "${IMAGE}" sh -c "ls -la /app/licenses/ && echo '✅ License files present'"
+
+          echo "✅ Image verification successful"
+
+  create-release:
+    needs: [validate, build, verify]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+
+          # Check if release already exists
+          if gh release view "${VERSION}" &>/dev/null; then
+            echo "✅ Release ${VERSION} already exists"
+          else
+            echo "📦 Creating release ${VERSION}..."
+
+            # Create release notes
+            cat > release_notes.md << EOF
+          ## AgentSystems Control Plane ${VERSION}
+
+          ### Docker Images
+          \`\`\`bash
+          # Pull the image
+          docker pull ${IMAGE}:${VERSION#v}
+          docker pull ${IMAGE}:latest
+
+          # Run the control plane
+          docker run -d \\
+            --name agent-control-plane \\
+            -p 8080:8080 \\
+            -v /var/run/docker.sock:/var/run/docker.sock \\
+            ${IMAGE}:${VERSION#v}
+          \`\`\`
+
+          ### What's Changed
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+
+          ### Container Registry
+          - GHCR: https://github.com/${{ github.repository }}/pkgs/container/agent-control-plane
+          EOF
+
+            # Create the release
+            gh release create "${VERSION}" \
+              --title "Release ${VERSION}" \
+              --notes-file release_notes.md \
+              --target ${{ github.sha }}
+
+            echo "✅ Release created successfully"
+          fi
+
+  summary:
+    if: always()
+    needs: [validate, build, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Version Information" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: \`${{ needs.validate.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Push to registry: ${{ needs.validate.outputs.should_push }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.validate.outputs.should_push }}" == "true" ]]; then
+            echo "### Published Images" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "${{ needs.validate.outputs.docker_tags }}" | tr ',' '\n' >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            echo "### Pull Commands" >> $GITHUB_STEP_SUMMARY
+            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+            VERSION="${{ needs.validate.outputs.version }}"
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            if [[ "${VERSION}" == v* ]]; then
+              echo "docker pull ${IMAGE}:${VERSION#v}" >> $GITHUB_STEP_SUMMARY
+              echo "docker pull ${IMAGE}:latest" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "docker pull ${IMAGE}:${VERSION}" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Validation: ${{ needs.validate.result }} ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Build: ${{ needs.build.result }} ✅" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.validate.outputs.should_push }}" == "true" ]]; then
+            echo "- Verify: ${{ needs.verify.result }} ✅" >> $GITHUB_STEP_SUMMARY
+          fi
