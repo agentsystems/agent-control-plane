@@ -6,7 +6,7 @@
 # -----------------------------------------------------------------------------
 # Builder stage – install Python deps and collect licenses
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim@sha256:4600f71648e110b005bf7bca92dbb335e549e6b27f2e83fceee5e11b3e1a4d01 AS builder
+FROM python:3.13-slim@sha256:2a928e11761872b12003515ea59b3c40bb5340e2e5ecc1108e043f92be7e473d AS builder
 
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
@@ -89,7 +89,7 @@ RUN pip uninstall -y pip-licenses || true
 # -----------------------------------------------------------------------------
 # Final stage – minimal, non-root image
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim@sha256:4600f71648e110b005bf7bca92dbb335e549e6b27f2e83fceee5e11b3e1a4d01
+FROM python:3.13-slim@sha256:2a928e11761872b12003515ea59b3c40bb5340e2e5ecc1108e043f92be7e473d
 
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
