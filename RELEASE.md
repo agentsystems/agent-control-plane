@@ -2,42 +2,46 @@
 
 ## Release Workflow
 
-We use GitHub Actions for automated Docker image releases to GitHub Container Registry (GHCR).
+We use GitHub Actions for manual Docker image releases to GitHub Container Registry (GHCR).
+This follows the same manual release pattern as the agentsystems-sdk.
 
 ### 1. Prepare Release
 
-Create a release branch and bump version:
+Create a release branch:
 ```bash
 git checkout -b release/X.Y.Z
-# Update version in any relevant files (e.g., docker-compose.yml, docs)
-git commit -am "chore: bump version to X.Y.Z"
+# Update version in any relevant files if needed (e.g., docker-compose.yml, docs)
+git commit -am "chore: prepare release X.Y.Z" # only if files were changed
 git push -u origin release/X.Y.Z
 ```
 
-### 2. Test Build
+### 2. Test Build (Dry Run)
 
 **Manual test via GitHub Actions** (from Actions tab):
 1. Go to Actions → "Build and Release to GHCR"
 2. Click "Run workflow"
-3. Select branch: `release/X.Y.Z`
+3. Use workflow from: `Branch: release/X.Y.Z`
 4. Version: `X.Y.Z` (without 'v' prefix)
-5. Push: `false` (dry run first)
-6. Verify build succeeds
+5. Push to registry: `false`
+6. Create git tag and GitHub release: `false`
+7. Run workflow and verify build succeeds
 
 ### 3. Create Pull Request
 
 Create PR from `release/X.Y.Z` to `main`:
 - Wait for CI checks to pass
-- Review Dockerfile changes if any
-- Verify license compliance is working
+- Review changes if any
 
-### 4. Test Release
+### 4. Test Push to Registry
 
 **Push test image** (from Actions tab):
-1. Run workflow again on `release/X.Y.Z`
-2. Version: `X.Y.Z`
-3. Push: `true`
-4. This creates `ghcr.io/agentsystems/agent-control-plane:X.Y.Z`
+1. Go to Actions → "Build and Release to GHCR"
+2. Click "Run workflow"
+3. Use workflow from: `Branch: release/X.Y.Z`
+4. Version: `X.Y.Z`
+5. Push to registry: `true`
+6. Create git tag and GitHub release: `false`
+7. This creates `ghcr.io/agentsystems/agent-control-plane:X.Y.Z` (but not latest yet)
 
 **Test the image**:
 ```bash
@@ -64,18 +68,18 @@ If tests pass:
 
 1. **Merge the PR** to main
 
-2. **Create and push version tag**:
-   ```bash
-   git checkout main
-   git pull origin main
-   git tag -a vX.Y.Z -m "Release vX.Y.Z"
-   git push origin vX.Y.Z
-   ```
-
-3. **Automatic release** happens on tag push:
-   - Creates `ghcr.io/agentsystems/agent-control-plane:X.Y.Z`
-   - Updates `ghcr.io/agentsystems/agent-control-plane:latest`
-   - Creates GitHub Release with notes
+2. **Final release from main** (from Actions tab):
+   1. Go to Actions → "Build and Release to GHCR"
+   2. Click "Run workflow"
+   3. Use workflow from: `Branch: main`
+   4. Version: `X.Y.Z`
+   5. Push to registry: `true`
+   6. Create git tag and GitHub release: `true`
+   7. This will:
+      - Create `ghcr.io/agentsystems/agent-control-plane:X.Y.Z`
+      - Update `ghcr.io/agentsystems/agent-control-plane:latest`
+      - Create git tag `vX.Y.Z`
+      - Create GitHub Release with notes
 
 ### 6. Verify Production Release
 
@@ -98,13 +102,10 @@ Follow semantic versioning:
 
 ## Quick Release (for maintainers)
 
-For a quick patch release:
-```bash
-# On main branch
-git tag -a vX.Y.Z -m "Release vX.Y.Z"
-git push origin vX.Y.Z
-# Workflow automatically builds and pushes to GHCR
-```
+For a quick patch release directly from main:
+1. Go to Actions → "Build and Release to GHCR"
+2. Run workflow from `main` branch
+3. Set version, push: `true`, tag_release: `true`
 
 ## Rollback
 
@@ -119,7 +120,8 @@ docker push ghcr.io/agentsystems/agent-control-plane:latest
 
 ## Notes
 
-- The `latest` tag only updates on stable releases (version tags)
-- The `main` tag always reflects the latest commit on main branch
+- The `latest` tag only updates when `tag_release` is set to `true`
+- All releases are manual through GitHub Actions UI
 - All images include full license compliance in `/app/licenses/`
 - Multi-platform images support both linux/amd64 and linux/arm64
+- This follows the same manual release pattern as agentsystems-sdk
