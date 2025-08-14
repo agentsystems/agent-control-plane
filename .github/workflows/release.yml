@@ -158,13 +158,15 @@ jobs:
           provenance: true
           sbom: true
 
-      - name: Generate attestation
-        if: needs.validate.outputs.should_push == 'true' && github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
+      # Attestation disabled for private repos on free plan
+      # Uncomment when repository is public or on paid plan
+      # - name: Generate attestation
+      #   if: needs.validate.outputs.should_push == 'true' && github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+      #   uses: actions/attest-build-provenance@v1
+      #   with:
+      #     subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+      #     subject-digest: ${{ steps.build.outputs.digest }}
+      #     push-to-registry: true
 
   verify:
     needs: [validate, build]
