@@ -45,6 +45,28 @@ jobs:
         with:
           fetch-depth: 0  # Need full history for git describe
 
+      - name: Check if version already exists
+        if: github.event.inputs.push == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          DOCKER_VERSION="${VERSION#v}"
+
+          # Check if this version already exists in GHCR
+          echo "🔍 Checking if version ${DOCKER_VERSION} already exists..."
+
+          # Try to get package versions from GHCR
+          if gh api "/orgs/${{ github.repository_owner }}/packages/container/agent-control-plane/versions" \
+             --jq '.[].metadata.container.tags[]' 2>/dev/null | grep -q "^${DOCKER_VERSION}$"; then
+            echo "❌ ERROR: Version ${DOCKER_VERSION} already exists in registry!"
+            echo "   Cannot overwrite existing versions."
+            echo "   Please use a different version number."
+            exit 1
+          fi
+
+          echo "✅ Version ${DOCKER_VERSION} is available"
+
       - name: Determine version
         id: version
         run: |
@@ -54,15 +76,24 @@ jobs:
           # Normalize version (remove 'v' prefix for Docker tags if present)
           DOCKER_VERSION="${VERSION#v}"
 
-          # Safety check: test releases should have suffix (rc, beta, alpha, etc.)
-          if [[ "${{ github.event.inputs.push }}" == "true" ]] && [[ "${{ github.event.inputs.tag_release }}" == "false" ]]; then
+          # Safety check 1: No clean versions for non-production releases
+          if [[ "${{ github.event.inputs.tag_release }}" == "false" ]]; then
             if [[ ! "${DOCKER_VERSION}" =~ - ]]; then
-              echo "❌ ERROR: Test releases must have a suffix (e.g., 0.3.2-rc1, 0.3.2-beta)"
+              echo "❌ ERROR: Non-production releases must have a suffix (e.g., 0.3.2-rc1, 0.3.2-test)"
               echo "   You entered: ${DOCKER_VERSION}"
               echo "   This looks like a production version!"
-              echo "   Either add a suffix or use tag_release=true for production"
+              echo "   For production release, use push=true and tag_release=true"
+              echo "   For testing, add a suffix like -rc1, -test, -beta"
               exit 1
             fi
+          fi
+
+          # Safety check 2: Invalid combination (tag without push)
+          if [[ "${{ github.event.inputs.push }}" == "false" ]] && [[ "${{ github.event.inputs.tag_release }}" == "true" ]]; then
+            echo "❌ ERROR: Cannot create release tags without pushing!"
+            echo "   Invalid combination: push=false, tag_release=true"
+            echo "   To create a release, use: push=true, tag_release=true"
+            exit 1
           fi
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
