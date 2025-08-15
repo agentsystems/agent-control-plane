@@ -54,6 +54,17 @@ jobs:
           # Normalize version (remove 'v' prefix for Docker tags if present)
           DOCKER_VERSION="${VERSION#v}"
 
+          # Safety check: test releases should have suffix (rc, beta, alpha, etc.)
+          if [[ "${{ github.event.inputs.push }}" == "true" ]] && [[ "${{ github.event.inputs.tag_release }}" == "false" ]]; then
+            if [[ ! "${DOCKER_VERSION}" =~ - ]]; then
+              echo "❌ ERROR: Test releases must have a suffix (e.g., 0.3.2-rc1, 0.3.2-beta)"
+              echo "   You entered: ${DOCKER_VERSION}"
+              echo "   This looks like a production version!"
+              echo "   Either add a suffix or use tag_release=true for production"
+              exit 1
+            fi
+          fi
+
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "docker_version=${DOCKER_VERSION}" >> $GITHUB_OUTPUT
           echo "📦 Version: ${VERSION} (Docker: ${DOCKER_VERSION})"
@@ -192,10 +203,10 @@ jobs:
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
 
           # Check if release already exists
-          if gh release view "${VERSION}" &>/dev/null; then
-            echo "✅ Release ${VERSION} already exists"
+          if gh release view "v${VERSION}" &>/dev/null; then
+            echo "✅ Release v${VERSION} already exists"
           else
-            echo "📦 Creating release ${VERSION}..."
+            echo "📦 Creating release v${VERSION}..."
 
             # Create release notes
             cat > release_notes.md << EOF
@@ -223,8 +234,8 @@ jobs:
           EOF
 
             # Create the release
-            gh release create "${VERSION}" \
-              --title "Release ${VERSION}" \
+            gh release create "v${VERSION}" \
+              --title "v${VERSION}" \
               --notes-file release_notes.md \
               --target ${{ github.sha }}
 
