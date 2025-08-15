@@ -115,6 +115,20 @@ jobs:
             exit 1
           fi
 
+          # Safety check 3: Production releases must be from main branch
+          if [[ "${{ github.event.inputs.tag_release }}" == "true" ]]; then
+            CURRENT_BRANCH="${{ github.ref_name }}"
+            if [[ "${CURRENT_BRANCH}" != "main" ]]; then
+              echo "❌ ERROR: Production releases must be from main branch!"
+              echo "   Current branch: ${CURRENT_BRANCH}"
+              echo "   To create a production release:"
+              echo "   1. Merge your changes to main"
+              echo "   2. Run this workflow from main branch"
+              echo "   For testing, use tag_release=false from any branch"
+              exit 1
+            fi
+          fi
+
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "docker_version=${DOCKER_VERSION}" >> $GITHUB_OUTPUT
           echo "📦 Version: ${VERSION} (Docker: ${DOCKER_VERSION})"
