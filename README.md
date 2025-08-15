@@ -5,8 +5,8 @@
 The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer that fronts every AgentSystems deployment.
 
 * Repo: `agentsystems/agent-control-plane`
-* Image: `agentsystems/agent-control-plane:<tag>`
-* Part of the multi-repository platform – full picture in the [Mintlify docs](../docs/overview).
+* Image: `ghcr.io/agentsystems/agent-control-plane:<tag>` (publicly available)
+* Part of the multi-repository platform – see the [AgentSystems docs](https://github.com/agentsystems/agentsystems).
 
 ---
 
@@ -51,23 +51,38 @@ Endpoint details: [Gateway API](../docs/reference/gateway-api).
 
 ---
 
-## Quick start (compose)
+## Quick start
 
-Use the deployment repo:
+### Using AgentSystems SDK (Recommended)
 
 ```bash
-# clone side-by-side
-mkdir agents && cd agents
-for r in agent-control-plane agent-platform-deployments agent-template; do
-  git clone https://github.com/agentsystems/$r.git
-done
+# Install the SDK
+pipx install agentsystems-sdk
 
+# Initialize a deployment
+agentsystems init
+
+# Start the platform
 cd agent-platform-deployments
-make up    # gateway + Postgres + hello-world-agent
+agentsystems up
 ```
 
-• Swagger: <http://localhost:18080/hello-world-agent/docs>
-• List agents & states: `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
+• API Gateway: <http://localhost:18080>
+• List agents: `curl http://localhost:18080/agents -H "Authorization: Bearer demo"`
+
+### Using Docker directly
+
+```bash
+# Pull the public image
+docker pull ghcr.io/agentsystems/agent-control-plane:latest
+
+# Run with Docker Compose (see agent-platform-deployments repo)
+docker run -d \
+  --name agent-control-plane \
+  -p 18080:8080 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/agentsystems/agent-control-plane:latest
+```
 
 ---
 
@@ -93,19 +108,28 @@ pytest tests/test_gateway.py -v
 
 ---
 
-## Build & push container
+## Docker Images
+
+### Using the public image (Recommended)
 
 ```bash
-# Pull the latest published image (recommended for most users)
-docker pull agentsystems/agent-control-plane:latest
+# Pull the latest published image from GitHub Container Registry
+docker pull ghcr.io/agentsystems/agent-control-plane:latest
 
-# OR build a local image for experimentation
-git clone https://github.com/agentsystems/agent-control-plane.git
-cd agent-control-plane
-./build_and_release.sh --version dev           # local build, no push
+# Specific version
+docker pull ghcr.io/agentsystems/agent-control-plane:0.3.3
 ```
 
-If you built a custom image, update the tag in your Compose / Helm manifests (`agent-platform-deployments`).
+### Building locally
+
+```bash
+# Clone and build for development
+git clone https://github.com/agentsystems/agent-control-plane.git
+cd agent-control-plane
+docker build -t my-custom-acp:dev .
+```
+
+If you built a custom image, update the tag in your `docker-compose.yml` or `agentsystems-config.yml`.
 
 ---
 
