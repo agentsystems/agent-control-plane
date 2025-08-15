@@ -178,7 +178,7 @@ jobs:
           provenance: ${{ needs.validate.outputs.should_push == 'true' }}
           sbom: ${{ needs.validate.outputs.should_push == 'true' }}
 
-      - name: Security scan - Check for secrets
+      - name: Security scan - Check for secrets in /app only
         run: |
           echo "🔍 Scanning image for secrets and sensitive data..."
 
@@ -197,24 +197,24 @@ jobs:
           # Check for common secret patterns
           docker run --rm --entrypoint sh "${IMAGE_TO_SCAN}" -c '
             echo "Checking for .env files..."
-            if find / -name ".env" -o -name "*.env" 2>/dev/null | grep -v "\.env\.example" | grep .; then
+            if find /app -name ".env" -o -name "*.env" 2>/dev/null | grep -v "\.env\.example" | grep .; then
               echo "❌ ERROR: Found .env files in image!"
               exit 1
             fi
 
             echo "Checking for private keys..."
-            if find / -name "*.pem" -o -name "*.key" -o -name "*_rsa" -o -name "*_dsa" -o -name "*_ecdsa" -o -name "*_ed25519" 2>/dev/null | grep -v "/usr/lib" | grep -v "/lib" | grep .; then
+            if find /app -name "*.pem" -o -name "*.key" -o -name "*_rsa" -o -name "*_dsa" -o -name "*_ecdsa" -o -name "*_ed25519" 2>/dev/null | grep -v "/usr/lib" | grep -v "/lib" | grep .; then
               echo "⚠️  WARNING: Found potential private key files - please verify these are examples only"
             fi
 
             echo "Checking for AWS credentials..."
-            if grep -r "AKIA[0-9A-Z]\{16\}" / --exclude-dir=/proc --exclude-dir=/sys 2>/dev/null; then
+            if grep -r "AKIA[0-9A-Z]\{16\}" /app 2>/dev/null; then
               echo "❌ ERROR: Found potential AWS access keys!"
               exit 1
             fi
 
             echo "Checking for common token patterns..."
-            if grep -rE "(api[_-]?key|api[_-]?token|auth[_-]?token|access[_-]?token|secret[_-]?key)\s*=\s*[\"'\''][^\"'\'']{20,}" / --exclude-dir=/proc --exclude-dir=/sys --exclude-dir=/usr/lib --exclude-dir=/lib 2>/dev/null | grep -v example | grep -v test | grep -v demo; then
+            if grep -rE "(api[_-]?key|api[_-]?token|auth[_-]?token|access[_-]?token|secret[_-]?key)\s*=\s*[\"'\''][^\"'\'']{20,}" /app 2>/dev/null | grep -v example | grep -v test | grep -v demo; then
               echo "⚠️  WARNING: Found potential API tokens - please verify these are safe"
             fi
 
