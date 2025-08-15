@@ -202,6 +202,18 @@ jobs:
               exit 1
             fi
 
+            echo "Checking for .git directory..."
+            if [ -d "/app/.git" ]; then
+              echo "❌ ERROR: .git directory found in image! Add .git to .dockerignore"
+              exit 1
+            fi
+
+            echo "Checking for other config files..."
+            if find /app -name ".npmrc" -o -name ".pypirc" -o -name ".netrc" -o -name ".aws" -o -name ".kube" 2>/dev/null | grep .; then
+              echo "❌ ERROR: Found config files that may contain credentials!"
+              exit 1
+            fi
+
             echo "Checking for private keys..."
             if find /app -name "*.pem" -o -name "*.key" -o -name "*_rsa" -o -name "*_dsa" -o -name "*_ecdsa" -o -name "*_ed25519" 2>/dev/null | grep -v "/usr/lib" | grep -v "/lib" | grep .; then
               echo "⚠️  WARNING: Found potential private key files - please verify these are examples only"
