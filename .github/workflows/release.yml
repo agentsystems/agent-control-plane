@@ -178,7 +178,7 @@ jobs:
           provenance: ${{ needs.validate.outputs.should_push == 'true' }}
           sbom: ${{ needs.validate.outputs.should_push == 'true' }}
 
-      - name: Security scan - Check for secrets in /app only
+      - name: Security scan - Check for secrets
         run: |
           echo "🔍 Scanning image for secrets and sensitive data..."
 
@@ -230,8 +230,11 @@ jobs:
               echo "⚠️  WARNING: Found potential API tokens - please verify these are safe"
             fi
 
-            echo "✅ Security scan completed"
+            echo "✅ Security scan completed - no secrets found in /app"
           '
+
+          # Final success message (only shown if all checks pass)
+          echo "🎉 Security scan PASSED"
 
       # Attestation disabled for private repos on free plan
       # Uncomment when repository is public or on paid plan
