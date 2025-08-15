@@ -176,15 +176,23 @@ jobs:
           sbom: true
 
       - name: Security scan - Check for secrets
-        if: needs.validate.outputs.should_push == 'true'
         run: |
           echo "🔍 Scanning image for secrets and sensitive data..."
 
-          # Export image for scanning (using amd64 for speed)
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.docker_version }}
+          # Get the image to scan
+          IMAGE_TO_SCAN="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.docker_version }}"
+
+          if [[ "${{ needs.validate.outputs.should_push }}" == "true" ]]; then
+            # Image was pushed, need to pull it
+            echo "Pulling pushed image: ${IMAGE_TO_SCAN}"
+            docker pull "${IMAGE_TO_SCAN}"
+          else
+            # Build-only mode: image is loaded locally
+            echo "Using locally built image: ${IMAGE_TO_SCAN}"
+          fi
 
           # Check for common secret patterns
-          docker run --rm --entrypoint sh ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.docker_version }} -c '
+          docker run --rm --entrypoint sh "${IMAGE_TO_SCAN}" -c '
             echo "Checking for .env files..."
             if find / -name ".env" -o -name "*.env" 2>/dev/null | grep -v "\.env\.example" | grep .; then
               echo "❌ ERROR: Found .env files in image!"
