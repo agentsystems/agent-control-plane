@@ -174,8 +174,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
+          # Attestations only work with push, not with load
+          provenance: ${{ needs.validate.outputs.should_push == 'true' }}
+          sbom: ${{ needs.validate.outputs.should_push == 'true' }}
 
       - name: Security scan - Check for secrets
         run: |
