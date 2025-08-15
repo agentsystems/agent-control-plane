@@ -52,7 +52,8 @@ build/
 # Documentation
 *.md
 docs/
-LICENSE
+# NOTE: LICENSE is needed by Dockerfile - don't exclude it
+# LICENSE
 NOTICE
 
 # Test files
