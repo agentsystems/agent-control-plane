@@ -76,14 +76,33 @@ jobs:
           # Normalize version (remove 'v' prefix for Docker tags if present)
           DOCKER_VERSION="${VERSION#v}"
 
-          # Safety check 1: No clean versions for non-production releases
-          if [[ "${{ github.event.inputs.tag_release }}" == "false" ]]; then
+          # Safety check 1: Version format validation
+          if [[ "${{ github.event.inputs.tag_release }}" == "true" ]]; then
+            # Production release - enforce strict semver (X.Y.Z)
+            if [[ ! "${DOCKER_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "❌ ERROR: Production releases must use semantic versioning (X.Y.Z)"
+              echo "   You entered: ${DOCKER_VERSION}"
+              echo "   Valid examples: 0.3.2, 1.0.0, 2.14.5"
+              echo "   Invalid examples: 0.3.2-rc1, v0.3.2, 0.3, 0.3.2.1"
+              exit 1
+            fi
+          else
+            # Non-production - must have suffix
             if [[ ! "${DOCKER_VERSION}" =~ - ]]; then
               echo "❌ ERROR: Non-production releases must have a suffix (e.g., 0.3.2-rc1, 0.3.2-test)"
               echo "   You entered: ${DOCKER_VERSION}"
               echo "   This looks like a production version!"
               echo "   For production release, use push=true and tag_release=true"
               echo "   For testing, add a suffix like -rc1, -test, -beta"
+              exit 1
+            fi
+            # Also validate base version before the suffix
+            BASE_VERSION="${DOCKER_VERSION%%-*}"
+            if [[ ! "${BASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "❌ ERROR: Invalid version format"
+              echo "   Base version must be X.Y.Z format: ${BASE_VERSION}"
+              echo "   Valid examples: 0.3.2-rc1, 1.0.0-beta, 2.14.5-test"
+              echo "   Invalid examples: 0.3-rc1, v0.3.2-rc1, 0.3.2.1-rc1"
               exit 1
             fi
           fi
