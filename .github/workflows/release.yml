@@ -111,6 +111,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Pre-build security check
+        run: |
+          echo "🔍 Checking source for sensitive files..."
+
+          # Check for .env files (except .env.example)
+          if find . -name ".env" -not -name ".env.example" | grep .; then
+            echo "❌ ERROR: Found .env file in source!"
+            echo "Remove it or add to .dockerignore"
+            exit 1
+          fi
+
+          # Check .dockerignore exists and has key entries
+          if [ ! -f .dockerignore ]; then
+            echo "⚠️  WARNING: No .dockerignore file found"
+          else
+            echo "✅ .dockerignore found, checking contents..."
+            for pattern in ".env" ".git" "*.key" "*.pem" "*.p12" ".DS_Store"; do
+              if ! grep -q "$pattern" .dockerignore; then
+                echo "⚠️  WARNING: Consider adding '$pattern' to .dockerignore"
+              fi
+            done
+          fi
+
+          echo "✅ Pre-build security check completed"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -149,6 +174,41 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
+
+      - name: Security scan - Check for secrets
+        if: needs.validate.outputs.should_push == 'true'
+        run: |
+          echo "🔍 Scanning image for secrets and sensitive data..."
+
+          # Export image for scanning (using amd64 for speed)
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.docker_version }}
+
+          # Check for common secret patterns
+          docker run --rm --entrypoint sh ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.docker_version }} -c '
+            echo "Checking for .env files..."
+            if find / -name ".env" -o -name "*.env" 2>/dev/null | grep -v "\.env\.example" | grep .; then
+              echo "❌ ERROR: Found .env files in image!"
+              exit 1
+            fi
+
+            echo "Checking for private keys..."
+            if find / -name "*.pem" -o -name "*.key" -o -name "*_rsa" -o -name "*_dsa" -o -name "*_ecdsa" -o -name "*_ed25519" 2>/dev/null | grep -v "/usr/lib" | grep -v "/lib" | grep .; then
+              echo "⚠️  WARNING: Found potential private key files - please verify these are examples only"
+            fi
+
+            echo "Checking for AWS credentials..."
+            if grep -r "AKIA[0-9A-Z]\{16\}" / --exclude-dir=/proc --exclude-dir=/sys 2>/dev/null; then
+              echo "❌ ERROR: Found potential AWS access keys!"
+              exit 1
+            fi
+
+            echo "Checking for common token patterns..."
+            if grep -rE "(api[_-]?key|api[_-]?token|auth[_-]?token|access[_-]?token|secret[_-]?key)\s*=\s*[\"'\''][^\"'\'']{20,}" / --exclude-dir=/proc --exclude-dir=/sys --exclude-dir=/usr/lib --exclude-dir=/lib 2>/dev/null | grep -v example | grep -v test | grep -v demo; then
+              echo "⚠️  WARNING: Found potential API tokens - please verify these are safe"
+            fi
+
+            echo "✅ Security scan completed"
+          '
 
       # Attestation disabled for private repos on free plan
       # Uncomment when repository is public or on paid plan
