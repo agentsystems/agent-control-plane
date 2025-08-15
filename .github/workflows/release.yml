@@ -166,57 +166,75 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # For build-only: single platform with load. For push: multi-platform
+          platforms: ${{ needs.validate.outputs.should_push == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: ${{ needs.validate.outputs.should_push == 'true' }}
+          load: ${{ needs.validate.outputs.should_push == 'false' }}
           tags: ${{ needs.validate.outputs.docker_tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
+          # Attestations only work with push, not with load
+          provenance: ${{ needs.validate.outputs.should_push == 'true' }}
+          sbom: ${{ needs.validate.outputs.should_push == 'true' }}
 
       - name: Security scan - Check for secrets
         run: |
           echo "🔍 Scanning image for secrets and sensitive data..."
 
-          # Get the image to scan
+          # Image reference is always the same - with GHCR prefix
           IMAGE_TO_SCAN="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}"
 
           if [[ "${{ needs.validate.outputs.should_push }}" == "true" ]]; then
-            # Image was pushed, need to pull it
+            # FOR true/false AND true/true: Image was pushed, need to pull
             echo "Pulling pushed image: ${IMAGE_TO_SCAN}"
             docker pull "${IMAGE_TO_SCAN}"
           else
-            # Build-only mode: image is loaded locally
-            echo "Using locally built image: ${IMAGE_TO_SCAN}"
+            # FOR false/false ONLY: Image was loaded locally with --load
+            echo "Using locally loaded image: ${IMAGE_TO_SCAN}"
           fi
 
           # Check for common secret patterns
           docker run --rm --entrypoint sh "${IMAGE_TO_SCAN}" -c '
             echo "Checking for .env files..."
-            if find / -name ".env" -o -name "*.env" 2>/dev/null | grep -v "\.env\.example" | grep .; then
+            if find /app -name ".env" -o -name "*.env" 2>/dev/null | grep -v "\.env\.example" | grep .; then
               echo "❌ ERROR: Found .env files in image!"
               exit 1
             fi
 
+            echo "Checking for .git directory..."
+            if [ -d "/app/.git" ]; then
+              echo "❌ ERROR: .git directory found in image! Add .git to .dockerignore"
+              exit 1
+            fi
+
+            echo "Checking for other config files..."
+            if find /app -name ".npmrc" -o -name ".pypirc" -o -name ".netrc" -o -name ".aws" -o -name ".kube" 2>/dev/null | grep .; then
+              echo "❌ ERROR: Found config files that may contain credentials!"
+              exit 1
+            fi
+
             echo "Checking for private keys..."
-            if find / -name "*.pem" -o -name "*.key" -o -name "*_rsa" -o -name "*_dsa" -o -name "*_ecdsa" -o -name "*_ed25519" 2>/dev/null | grep -v "/usr/lib" | grep -v "/lib" | grep .; then
+            if find /app -name "*.pem" -o -name "*.key" -o -name "*_rsa" -o -name "*_dsa" -o -name "*_ecdsa" -o -name "*_ed25519" 2>/dev/null | grep -v "/usr/lib" | grep -v "/lib" | grep .; then
               echo "⚠️  WARNING: Found potential private key files - please verify these are examples only"
             fi
 
             echo "Checking for AWS credentials..."
-            if grep -r "AKIA[0-9A-Z]\{16\}" / --exclude-dir=/proc --exclude-dir=/sys 2>/dev/null; then
+            if grep -r "AKIA[0-9A-Z]\{16\}" /app 2>/dev/null; then
               echo "❌ ERROR: Found potential AWS access keys!"
               exit 1
             fi
 
             echo "Checking for common token patterns..."
-            if grep -rE "(api[_-]?key|api[_-]?token|auth[_-]?token|access[_-]?token|secret[_-]?key)\s*=\s*[\"'\''][^\"'\'']{20,}" / --exclude-dir=/proc --exclude-dir=/sys --exclude-dir=/usr/lib --exclude-dir=/lib 2>/dev/null | grep -v example | grep -v test | grep -v demo; then
+            if grep -rE "(api[_-]?key|api[_-]?token|auth[_-]?token|access[_-]?token|secret[_-]?key)\s*=\s*[\"'\''][^\"'\'']{20,}" /app 2>/dev/null | grep -v example | grep -v test | grep -v demo; then
               echo "⚠️  WARNING: Found potential API tokens - please verify these are safe"
             fi
 
-            echo "✅ Security scan completed"
+            echo "✅ Security scan completed - no secrets found in /app"
           '
+
+          # Final success message (only shown if all checks pass)
+          echo "🎉 Security scan PASSED"
 
       # Attestation disabled for private repos on free plan
       # Uncomment when repository is public or on paid plan

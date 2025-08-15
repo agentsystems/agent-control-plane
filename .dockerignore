@@ -1,1 +1,76 @@
+# Environment and secrets
 .env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Git
+.git
+.gitignore
+.github
+
+# CI/CD
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.egg-info/
+dist/
+build/
+
+# Config files that might have creds
+.aws/
+.kube/
+.docker/
+.npmrc
+.pypirc
+.netrc
+
+# Documentation
+*.md
+docs/
+# NOTE: LICENSE is needed by Dockerfile - don't exclude it
+# LICENSE
+NOTICE
+
+# Test files
+tests/
+test/
+*_test.py
+test_*.py
+
+# Build artifacts
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
