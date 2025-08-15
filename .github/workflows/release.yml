@@ -187,8 +187,10 @@ jobs:
             echo "Pulling pushed image: ${IMAGE_TO_SCAN}"
             docker pull "${IMAGE_TO_SCAN}"
           else
-            # Build-only mode: image is loaded locally
+            # Build-only mode: image was loaded locally by buildx with --load
+            # The image is already available with the full tag
             echo "Using locally built image: ${IMAGE_TO_SCAN}"
+            # Note: buildx --load makes the image available with all specified tags
           fi
 
           # Check for common secret patterns
