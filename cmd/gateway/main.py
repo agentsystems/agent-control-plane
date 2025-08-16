@@ -658,6 +658,133 @@ async def get_result(thread_id: str) -> Dict[str, Any]:
     }
 
 
+@app.get("/executions")
+async def list_executions(
+    limit: int = 50, offset: int = 0, agent: str = None, state: str = None
+) -> Dict[str, Any]:
+    """List recent agent executions with optional filtering.
+
+    Args:
+        limit: Maximum number of executions to return (default 50, max 100)
+        offset: Number of executions to skip for pagination
+        agent: Filter by specific agent name
+        state: Filter by execution state (queued, running, completed, failed)
+
+    Returns:
+        Dictionary with executions array and pagination info
+
+    Raises:
+        HTTPException: 400 if invalid parameters
+    """
+    # Validate parameters
+    limit = min(max(1, limit), 100)  # Clamp between 1 and 100
+    offset = max(0, offset)
+
+    if database.DB_POOL:
+        try:
+            # Build WHERE clause for filtering
+            where_conditions = []
+            params = []
+            param_count = 0
+
+            if agent:
+                param_count += 1
+                where_conditions.append(f"agent = ${param_count}")
+                params.append(agent)
+
+            if state and state in ["queued", "running", "completed", "failed"]:
+                param_count += 1
+                where_conditions.append(f"state = ${param_count}")
+                params.append(state)
+
+            where_clause = (
+                "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+            )
+
+            # Get total count for pagination
+            count_query = f"SELECT COUNT(*) FROM invocations {where_clause}"
+            total_count = await database.DB_POOL.fetchval(count_query, *params)
+
+            # Get executions with pagination
+            param_count += 1
+            limit_param = f"${param_count}"
+            param_count += 1
+            offset_param = f"${param_count}"
+
+            query = f"""
+                SELECT thread_id, agent, user_token, state, created_at, started_at, ended_at,
+                       result, error, progress
+                FROM invocations
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT {limit_param} OFFSET {offset_param}
+            """
+
+            rows = await database.DB_POOL.fetch(query, *params, limit, offset)
+
+            executions = [
+                {
+                    "thread_id": str(row["thread_id"]),
+                    "agent": row["agent"],
+                    "user_token": row["user_token"],
+                    "state": row["state"],
+                    "created_at": (
+                        row["created_at"].isoformat() if row["created_at"] else None
+                    ),
+                    "started_at": (
+                        row["started_at"].isoformat() if row["started_at"] else None
+                    ),
+                    "ended_at": (
+                        row["ended_at"].isoformat() if row["ended_at"] else None
+                    ),
+                    "result": row["result"],
+                    "error": row["error"],
+                    "progress": row["progress"],
+                }
+                for row in rows
+            ]
+
+            return {
+                "executions": executions,
+                "pagination": {
+                    "total": total_count,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": offset + limit < total_count,
+                },
+            }
+
+        except Exception as e:
+            logger.error("list_executions_failed", error=str(e))
+            raise HTTPException(status_code=500, detail="Failed to retrieve executions")
+    else:
+        # Fallback to in-memory storage if DB unavailable
+        jobs = list(database.JOBS.values())
+
+        # Apply filters
+        if agent:
+            jobs = [j for j in jobs if j.get("agent") == agent]
+        if state:
+            jobs = [j for j in jobs if j.get("state") == state]
+
+        # Sort by created_at (mock with current time if missing)
+        jobs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+        # Apply pagination
+        total_count = len(jobs)
+        paginated_jobs = jobs[offset : offset + limit]
+
+        return {
+            "executions": paginated_jobs,
+            "pagination": {
+                "total": total_count,
+                "limit": limit,
+                "offset": offset,
+                "has_more": offset + limit < total_count,
+            },
+        }
+
+
 @app.post("/progress/{thread_id}")
 async def post_progress(thread_id: str, request: Request) -> Dict[str, bool]:
     """Update progress for an in-flight invocation.
