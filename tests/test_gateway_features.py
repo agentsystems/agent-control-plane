@@ -145,8 +145,8 @@ def test_agents_filtered_endpoint(monkeypatch, restore_globals):
         assert resp.status_code == 200
         assert resp.json() == {"agents": ["foo"]}
 
-        # idle only
-        resp = client.post("/agents", json={"state": "idle"})
+        # stopped only
+        resp = client.post("/agents", json={"state": "stopped"})
         assert resp.status_code == 200
         assert resp.json() == {"agents": ["bar"]}
 
