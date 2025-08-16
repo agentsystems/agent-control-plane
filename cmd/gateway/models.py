@@ -13,4 +13,4 @@ INV_STATE_FAILED = "failed"
 class AgentsFilter(BaseModel):
     """Filter criteria for listing agents."""
 
-    state: str = "running"  # running | idle | all
+    state: str = "running"  # running | stopped | all
