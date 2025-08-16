@@ -214,13 +214,13 @@ async def list_agents_filtered(filter: AgentsFilter) -> Dict[str, List[str]]:
 
     if docker_discovery.client is None:
         # Docker unavailable – rely on configured list only
-        idle_set = configured_set - running_set
+        stopped_set = configured_set - running_set
         if filter.state == "running":
             selected = running_set
-        elif filter.state == "idle":
-            selected = idle_set
+        elif filter.state == "stopped":
+            selected = stopped_set
         else:
-            selected = running_set | idle_set
+            selected = running_set | stopped_set
         return {"agents": sorted(selected)}
 
     # All agent-labeled containers (running or stopped)
@@ -231,14 +231,14 @@ async def list_agents_filtered(filter: AgentsFilter) -> Dict[str, List[str]]:
         )
     }
     not_created_set = configured_set - all_ctrs
-    idle_set = (all_ctrs - running_set) | not_created_set
+    stopped_set = (all_ctrs - running_set) | not_created_set
 
     if filter.state == "running":
         selected = running_set
-    elif filter.state == "idle":
-        selected = idle_set
+    elif filter.state == "stopped":
+        selected = stopped_set
     else:
-        selected = running_set | idle_set
+        selected = running_set | stopped_set
 
     return {"agents": sorted(selected)}
 
@@ -258,6 +258,87 @@ async def agent_detail(agent: str) -> Dict[str, Any]:
     async with httpx.AsyncClient() as cli:
         r = await cli.get(f"http://{agent}:8000/metadata", timeout=10)
     return r.json()
+
+
+@app.post("/agents/{agent}/start")
+async def start_agent(agent: str) -> Dict[str, Any]:
+    """Start a stopped agent container.
+
+    Args:
+        agent: Name of the agent to start
+
+    Returns:
+        Dictionary with success status and message
+
+    Raises:
+        HTTPException: 404 if agent not found or failed to start
+    """
+    if docker_discovery.ensure_agent_running(agent):
+        docker_discovery.refresh_agents()
+        return {"success": True, "message": f"Agent {agent} started successfully"}
+    else:
+        raise HTTPException(
+            status_code=404, detail="Agent not found or failed to start"
+        )
+
+
+@app.post("/agents/{agent}/stop")
+async def stop_agent(agent: str) -> Dict[str, Any]:
+    """Stop a running agent container.
+
+    Args:
+        agent: Name of the agent to stop
+
+    Returns:
+        Dictionary with success status and message
+
+    Raises:
+        HTTPException: 404 if agent not found, 400 if agent not running
+    """
+    if not docker_discovery.client:
+        raise HTTPException(status_code=503, detail="Docker unavailable")
+
+    try:
+        # Find the container
+        containers = docker_discovery.client.containers.list(
+            filters={
+                "label": ["agent.enabled=true", f"com.docker.compose.service={agent}"],
+                "status": "running",
+            }
+        )
+
+        if not containers:
+            # Try by container name as fallback
+            containers = docker_discovery.client.containers.list(
+                all=True, filters={"name": agent}
+            )
+            containers = [
+                c for c in containers if c.labels.get("agent.enabled") == "true"
+            ]
+
+        if not containers:
+            raise HTTPException(status_code=404, detail="Agent container not found")
+
+        container = containers[0]
+        if container.status != "running":
+            raise HTTPException(status_code=400, detail="Agent is not running")
+
+        container.stop()
+        logger.info(
+            "agent_stopped_via_api", agent=agent, container_id=container.short_id
+        )
+
+        # Clear last seen time and refresh agent registry
+        lifecycle.clear_last_seen(agent)
+        docker_discovery.refresh_agents()
+
+        return {"success": True, "message": f"Agent {agent} stopped successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("stop_agent_failed", agent=agent, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to stop agent: {str(e)}")
 
 
 # ----------------------------------------------------------------------------
