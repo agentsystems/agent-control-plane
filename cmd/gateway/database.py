@@ -114,24 +114,28 @@ async def update_job_record(thread_id: str, **fields) -> None:
         JOBS[thread_id].update(fields)
 
 
-async def insert_job_row(thread_id: str, agent: str, user_token: str) -> None:
+async def insert_job_row(
+    thread_id: str, agent: str, user_token: str, payload: Dict[str, Any] = None
+) -> None:
     """Insert a new job record.
 
     Args:
         thread_id: UUID for the new job
         agent: Name of the agent handling this job
         user_token: Bearer token of the user making the request
+        payload: Original request payload sent to the agent
     """
     if DB_POOL:
         await DB_POOL.execute(
             """
-            INSERT INTO invocations (thread_id, agent, user_token, state, created_at)
-            VALUES ($1, $2, $3, $4, NOW())
+            INSERT INTO invocations (thread_id, agent, user_token, state, created_at, payload)
+            VALUES ($1, $2, $3, $4, NOW(), $5)
             """,
             thread_id,
             agent,
             user_token,
             INV_STATE_QUEUED,
+            json.dumps(payload) if payload else None,
         )
     else:
         # Fallback to in-memory storage
@@ -140,6 +144,7 @@ async def insert_job_row(thread_id: str, agent: str, user_token: str) -> None:
             "agent": agent,
             "user_token": user_token,
             "state": INV_STATE_QUEUED,
+            "payload": payload,
         }
 
 

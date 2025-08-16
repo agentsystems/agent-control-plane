@@ -89,6 +89,7 @@ async def init_db() -> None:
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           started_at TIMESTAMPTZ,
           ended_at TIMESTAMPTZ,
+          payload JSONB,
           result JSONB,
           error JSONB,
           progress JSONB
@@ -412,7 +413,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
     sync_flag = bool(payload.pop("sync", False))
 
     thread_id = str(uuid.uuid4())
-    await database.insert_job_row(thread_id, agent, auth)
+    await database.insert_job_row(thread_id, agent, auth, payload)
 
     # Audit logging: record the incoming request
     await database.audit_invoke_request(auth, thread_id, agent, payload)
@@ -894,6 +895,79 @@ async def proxy_egress(request: Request) -> JSONResponse:
         status_code=resp.status_code,
         content={"status_code": resp.status_code, "body": resp.text},
     )
+
+
+@app.get("/executions/{thread_id}/audit")
+async def get_execution_audit(thread_id: str) -> Dict[str, Any]:
+    """Get audit trail for a specific execution including hash chain data.
+
+    Args:
+        thread_id: UUID of the execution
+
+    Returns:
+        Dictionary with audit logs, input payload, and hash information
+
+    Raises:
+        HTTPException: 404 if thread_id not found
+    """
+    if not database.DB_POOL:
+        raise HTTPException(
+            status_code=503, detail="Audit trail unavailable - database not connected"
+        )
+
+    try:
+        # Get audit log entries for this thread with existing hash chain data
+        audit_logs = await database.DB_POOL.fetch(
+            """
+            SELECT id, timestamp, user_token, actor, action, resource,
+                   status_code, payload, error_msg, prev_hash, entry_hash
+            FROM audit_log
+            WHERE thread_id = $1
+            ORDER BY timestamp ASC
+            """,
+            thread_id,
+        )
+
+        if not audit_logs:
+            raise HTTPException(
+                status_code=404, detail="No audit trail found for thread_id"
+            )
+
+        # Extract input payload from the first audit entry (invoke_request)
+        input_payload = None
+        for log in audit_logs:
+            if log["action"] == "invoke_request" and log["payload"]:
+                input_payload = log["payload"]  # Already parsed as JSONB
+                break
+
+        # Format audit trail with existing hash information
+        formatted_logs = [
+            {
+                "id": str(log["id"]),
+                "timestamp": log["timestamp"].isoformat() if log["timestamp"] else None,
+                "actor": log["actor"],
+                "action": log["action"],
+                "resource": log["resource"],
+                "status_code": log["status_code"],
+                "payload": log["payload"],
+                "error_msg": log["error_msg"],
+                "prev_hash": log["prev_hash"],
+                "entry_hash": log["entry_hash"],
+            }
+            for log in audit_logs
+        ]
+
+        return {
+            "thread_id": thread_id,
+            "input_payload": input_payload,
+            "audit_trail": formatted_logs,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_execution_audit_failed", thread_id=thread_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve audit trail")
 
 
 @app.get("/health")
