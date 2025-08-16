@@ -714,7 +714,7 @@ async def list_executions(
 
             query = f"""
                 SELECT thread_id, agent, user_token, state, created_at, started_at, ended_at,
-                       result, error, progress
+                       payload, result, error, progress
                 FROM invocations
                 {where_clause}
                 ORDER BY created_at DESC
@@ -738,6 +738,7 @@ async def list_executions(
                     "ended_at": (
                         row["ended_at"].isoformat() if row["ended_at"] else None
                     ),
+                    "payload": row["payload"],
                     "result": row["result"],
                     "error": row["error"],
                     "progress": row["progress"],
