@@ -1049,7 +1049,7 @@ async def verify_audit_integrity() -> Dict[str, Any]:
 
 
 @app.get("/logs")
-async def get_recent_logs(limit: int = 100) -> Dict[str, Any]:
+async def get_recent_logs(limit: int = 100, offset: int = 0) -> Dict[str, Any]:
     """Get recent logs from the gateway container.
 
     Args:
@@ -1089,8 +1089,10 @@ async def get_recent_logs(limit: int = 100) -> Dict[str, Any]:
         if not gateway_container:
             raise HTTPException(status_code=404, detail="Gateway container not found")
 
-        # Get recent logs from container
-        log_bytes = gateway_container.logs(tail=limit, timestamps=True)
+        # Limit to reasonable amount - Docker logs can be huge
+        # Only get recent logs (last 500 lines max) to avoid overwhelming the system
+        total_lines_to_fetch = min(500, offset + limit + 100)
+        log_bytes = gateway_container.logs(tail=total_lines_to_fetch, timestamps=True)
         log_text = log_bytes.decode("utf-8", errors="ignore")
 
         # Parse log lines
@@ -1134,7 +1136,17 @@ async def get_recent_logs(limit: int = 100) -> Dict[str, Any]:
         # Reverse to show newest first
         log_entries.reverse()
 
-        return {"logs": log_entries, "total": len(log_entries)}
+        # Apply pagination
+        total_available = len(log_entries)
+        paginated_logs = log_entries[offset : offset + limit]
+
+        return {
+            "logs": paginated_logs,
+            "total": total_available,
+            "offset": offset,
+            "limit": limit,
+            "has_more": offset + limit < total_available,
+        }
 
     except HTTPException:
         raise
