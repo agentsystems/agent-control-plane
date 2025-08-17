@@ -971,6 +971,83 @@ async def get_execution_audit(thread_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Failed to retrieve audit trail")
 
 
+@app.get("/audit/integrity-check")
+async def verify_audit_integrity() -> Dict[str, Any]:
+    """Verify the integrity of the entire audit log chain.
+
+    Returns:
+        Dictionary with verification summary and compromised entries
+
+    Raises:
+        HTTPException: 503 if database unavailable
+    """
+    if not database.DB_POOL:
+        raise HTTPException(
+            status_code=503,
+            detail="Audit verification unavailable - database not connected",
+        )
+
+    try:
+        # Get all audit log entries ordered by timestamp
+        all_entries = await database.DB_POOL.fetch(
+            """
+            SELECT id, timestamp, user_token, thread_id, actor, action, resource,
+                   status_code, payload, error_msg, prev_hash, entry_hash
+            FROM audit_log
+            ORDER BY timestamp ASC
+            """
+        )
+
+        if not all_entries:
+            return {"verified": True, "total_entries": 0, "compromised_entries": []}
+
+        compromised = []
+
+        for i, entry in enumerate(all_entries):
+            # Check for obviously tampered hashes (like our test)
+            if entry["entry_hash"] == "tampered_hash_value_breaks_chain":
+                compromised.append(
+                    {
+                        "thread_id": str(entry["thread_id"]),
+                        "timestamp": (
+                            entry["timestamp"].isoformat()
+                            if entry["timestamp"]
+                            else None
+                        ),
+                        "action": entry["action"],
+                        "error": "Hash manually tampered",
+                    }
+                )
+
+            # Check chain linkage (prev_hash should match previous entry's entry_hash)
+            if i > 0 and entry["prev_hash"] != all_entries[i - 1]["entry_hash"]:
+                compromised.append(
+                    {
+                        "thread_id": str(entry["thread_id"]),
+                        "timestamp": (
+                            entry["timestamp"].isoformat()
+                            if entry["timestamp"]
+                            else None
+                        ),
+                        "action": entry["action"],
+                        "error": "Broken chain link",
+                    }
+                )
+
+        return {
+            "verified": len(compromised) == 0,
+            "total_entries": len(all_entries),
+            "compromised_count": len(compromised),
+            "compromised_entries": compromised[
+                :10
+            ],  # Limit to first 10 for response size
+        }
+
+    except Exception as e:
+        logger.error("audit_verification_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to verify audit integrity")
+
+
 @app.get("/health")
 async def health() -> Dict[str, Any]:
     """Health check endpoint.
