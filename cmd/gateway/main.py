@@ -1048,6 +1048,103 @@ async def verify_audit_integrity() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Failed to verify audit integrity")
 
 
+@app.get("/logs")
+async def get_recent_logs(limit: int = 100) -> Dict[str, Any]:
+    """Get recent logs from the gateway container.
+
+    Args:
+        limit: Maximum number of log entries to return (default 100, max 500)
+
+    Returns:
+        Dictionary with recent log entries from container logs
+    """
+    limit = min(max(1, limit), 500)  # Clamp between 1 and 500
+
+    if not docker_discovery.client:
+        raise HTTPException(status_code=503, detail="Docker client unavailable")
+
+    try:
+        # Get the current container (gateway)
+        # Try to find the gateway container by common names
+        gateway_container = None
+        possible_names = ["gateway", "agentsystems-gateway-1", "local-gateway-1"]
+
+        for name in possible_names:
+            try:
+                gateway_container = docker_discovery.client.containers.get(name)
+                break
+            except Exception:
+                continue
+
+        if not gateway_container:
+            # Fallback: find container running this code by process
+            containers = docker_discovery.client.containers.list()
+            for container in containers:
+                if "agent-control-plane" in (
+                    container.image.tags[0] if container.image.tags else ""
+                ):
+                    gateway_container = container
+                    break
+
+        if not gateway_container:
+            raise HTTPException(status_code=404, detail="Gateway container not found")
+
+        # Get recent logs from container
+        log_bytes = gateway_container.logs(tail=limit, timestamps=True)
+        log_text = log_bytes.decode("utf-8", errors="ignore")
+
+        # Parse log lines
+        log_entries = []
+        for line in log_text.strip().split("\n"):
+            if not line.strip():
+                continue
+
+            # Parse Docker log format: "timestamp message"
+            parts = line.split(" ", 1)
+            if len(parts) >= 2:
+                timestamp_str = parts[0]
+                message = parts[1]
+
+                # Determine log level from message content
+                level = "info"
+                if "error" in message.lower() or "failed" in message.lower():
+                    level = "error"
+                elif "warning" in message.lower() or "warn" in message.lower():
+                    level = "warning"
+
+                # Determine source from message content
+                source = "gateway"
+                if "agent" in message.lower():
+                    source = "agents"
+                elif "database" in message.lower() or "db" in message.lower():
+                    source = "database"
+                elif "proxy" in message.lower():
+                    source = "proxy"
+
+                log_entries.append(
+                    {
+                        "timestamp": timestamp_str,
+                        "level": level,
+                        "message": message,
+                        "source": source,
+                        "extra": {},
+                    }
+                )
+
+        # Reverse to show newest first
+        log_entries.reverse()
+
+        return {"logs": log_entries, "total": len(log_entries)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_logs_failed", error=str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve logs: {str(e)}"
+        )
+
+
 @app.get("/health")
 async def health() -> Dict[str, Any]:
     """Health check endpoint.
