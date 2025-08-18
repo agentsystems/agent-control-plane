@@ -276,6 +276,8 @@ async def start_agent(agent: str) -> Dict[str, Any]:
     """
     if docker_discovery.ensure_agent_running(agent):
         docker_discovery.refresh_agents()
+        # Record activity so manually started agents don't get stopped immediately
+        lifecycle.record_agent_activity(agent)
         return {"success": True, "message": f"Agent {agent} started successfully"}
     else:
         raise HTTPException(
