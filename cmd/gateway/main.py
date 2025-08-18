@@ -661,6 +661,112 @@ async def get_result(thread_id: str) -> Dict[str, Any]:
     }
 
 
+@app.get("/artifacts/{thread_id}")
+async def list_artifacts(thread_id: str) -> Dict[str, Any]:
+    """List artifact files for a specific thread.
+
+    Args:
+        thread_id: UUID of the thread
+
+    Returns:
+        Dictionary with input_files and output_files arrays
+
+    Raises:
+        HTTPException: 404 if thread not found or no artifacts directory
+    """
+    import os
+
+    artifacts_base = os.path.join("/artifacts", thread_id)
+
+    if not os.path.exists(artifacts_base):
+        raise HTTPException(status_code=404, detail="Thread artifacts not found")
+
+    def list_files_in_dir(dir_path: str, file_type: str) -> List[Dict[str, Any]]:
+        """List files in a directory with metadata."""
+        files = []
+        if not os.path.exists(dir_path):
+            return files
+
+        try:
+            for filename in os.listdir(dir_path):
+                file_path = os.path.join(dir_path, filename)
+                if os.path.isfile(file_path):
+                    try:
+                        file_stat = os.stat(file_path)
+                        files.append(
+                            {
+                                "name": filename,
+                                "path": f"/artifacts/{thread_id}/{file_type}/{filename}",
+                                "size": file_stat.st_size,
+                                "modified": datetime.datetime.fromtimestamp(
+                                    file_stat.st_mtime, datetime.timezone.utc
+                                ).isoformat(),
+                                "type": file_type,
+                            }
+                        )
+                    except OSError:
+                        # Skip files we can't stat
+                        continue
+        except PermissionError:
+            # Skip directories we can't read
+            pass
+
+        return sorted(files, key=lambda x: x["name"])
+
+    input_files = list_files_in_dir(os.path.join(artifacts_base, "in"), "in")
+    output_files = list_files_in_dir(os.path.join(artifacts_base, "out"), "out")
+
+    return {
+        "thread_id": thread_id,
+        "input_files": input_files,
+        "output_files": output_files,
+    }
+
+
+@app.get("/artifacts/{thread_id}/{file_path:path}")
+async def download_artifact(thread_id: str, file_path: str) -> Any:
+    """Download a specific artifact file.
+
+    Args:
+        thread_id: UUID of the thread
+        file_path: Path to the file (e.g., "in/data.csv" or "out/result.json")
+
+    Returns:
+        File content with appropriate headers
+
+    Raises:
+        HTTPException: 404 if file not found, 403 if access denied
+    """
+    import os
+    from fastapi.responses import FileResponse
+
+    # Sanitize the file path to prevent directory traversal
+    file_path = file_path.strip("/")
+    if ".." in file_path or file_path.startswith("/"):
+        raise HTTPException(status_code=403, detail="Invalid file path")
+
+    # Ensure file_path starts with 'in/' or 'out/'
+    if not (file_path.startswith("in/") or file_path.startswith("out/")):
+        raise HTTPException(
+            status_code=403, detail="File must be in 'in' or 'out' directory"
+        )
+
+    full_path = os.path.join("/artifacts", thread_id, file_path)
+
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if not os.path.isfile(full_path):
+        raise HTTPException(status_code=403, detail="Path is not a file")
+
+    # Get the filename for the download
+    filename = os.path.basename(file_path)
+
+    return FileResponse(
+        path=full_path, filename=filename, media_type="application/octet-stream"
+    )
+
+
 @app.get("/executions")
 async def list_executions(
     limit: int = 50, offset: int = 0, agent: str = None, state: str = None
