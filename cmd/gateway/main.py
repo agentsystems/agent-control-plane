@@ -570,11 +570,13 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                         thread_id,
                         state=INV_STATE_FAILED,
                         ended_at=datetime.datetime.now(datetime.timezone.utc),
-                        error={
-                            "status": r.status_code,
-                            "body": r.text[:500],  # truncate large bodies
-                            "message": error_msg,
-                        },
+                        error=json.dumps(
+                            {
+                                "status": r.status_code,
+                                "body": r.text[:500],  # truncate large bodies
+                                "message": error_msg,
+                            }
+                        ),
                     )
                     # Audit logging: record error response
                     await database.audit_invoke_response(
