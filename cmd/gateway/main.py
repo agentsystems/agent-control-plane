@@ -2,6 +2,8 @@ import asyncio
 import os
 import uuid
 import json
+import yaml
+import shutil
 from fastapi import UploadFile
 from typing import Dict, List, Any
 
@@ -1156,6 +1158,300 @@ async def verify_audit_integrity() -> Dict[str, Any]:
     except Exception as e:
         logger.error("audit_verification_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to verify audit integrity")
+
+
+# ----------------------------------------------------------------------------
+# Configuration management endpoints
+# ----------------------------------------------------------------------------
+
+CONFIG_FILE = os.getenv(
+    "AGENTSYSTEMS_CONFIG_PATH", "/etc/agentsystems/agentsystems-config.yml"
+)
+ENV_FILE = os.getenv("AGENTSYSTEMS_ENV_PATH", "/etc/agentsystems/.env")
+
+
+@app.get("/api/config/agentsystems-config")
+async def read_agentsystems_config() -> Dict[str, Any]:
+    """Read the agentsystems-config.yml file.
+
+    Returns:
+        Dictionary containing the parsed YAML configuration
+
+    Raises:
+        HTTPException: 404 if config file not found, 500 if parsing fails
+    """
+    try:
+        if not os.path.exists(CONFIG_FILE):
+            # Return default config if file doesn't exist
+            return {"config_version": 1, "registry_connections": {}, "agents": []}
+
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        logger.info("config_file_read", path=CONFIG_FILE)
+        return config
+
+    except yaml.YAMLError as e:
+        logger.error("config_yaml_parse_error", error=str(e), path=CONFIG_FILE)
+        raise HTTPException(
+            status_code=500, detail=f"Invalid YAML in config file: {str(e)}"
+        )
+    except Exception as e:
+        logger.error("config_file_read_error", error=str(e), path=CONFIG_FILE)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to read config file: {str(e)}"
+        )
+
+
+@app.put("/api/config/agentsystems-config")
+async def write_agentsystems_config(request: Request) -> Dict[str, str]:
+    """Write the agentsystems-config.yml file.
+
+    Args:
+        request: JSON body containing the complete configuration
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException: 400 if invalid config, 500 if write fails
+    """
+    try:
+        config = await request.json()
+
+        # Basic validation
+        if not isinstance(config, dict):
+            raise HTTPException(status_code=400, detail="Config must be a JSON object")
+
+        if "config_version" not in config:
+            raise HTTPException(status_code=400, detail="config_version is required")
+
+        if config.get("config_version") < 1:
+            raise HTTPException(status_code=400, detail="config_version must be >= 1")
+
+        # Validate registry connections structure
+        registry_connections = config.get("registry_connections", {})
+        if not isinstance(registry_connections, dict):
+            raise HTTPException(
+                status_code=400, detail="registry_connections must be an object"
+            )
+
+        for reg_id, reg_config in registry_connections.items():
+            if not isinstance(reg_config, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Registry '{reg_id}' config must be an object",
+                )
+            if "url" not in reg_config:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Registry '{reg_id}' missing required 'url' field",
+                )
+            if "auth" not in reg_config:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Registry '{reg_id}' missing required 'auth' field",
+                )
+
+        # Validate agents structure
+        agents = config.get("agents", [])
+        if not isinstance(agents, list):
+            raise HTTPException(status_code=400, detail="agents must be an array")
+
+        for i, agent in enumerate(agents):
+            if not isinstance(agent, dict):
+                raise HTTPException(
+                    status_code=400, detail=f"Agent {i} must be an object"
+                )
+            required_fields = ["name", "repo", "tag", "registry_connection"]
+            for field in required_fields:
+                if field not in agent:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Agent {i} missing required field '{field}'",
+                    )
+
+        # Create backup before writing
+        if os.path.exists(CONFIG_FILE):
+            backup_path = (
+                f"{CONFIG_FILE}.backup.{int(datetime.datetime.now().timestamp())}"
+            )
+            shutil.copy2(CONFIG_FILE, backup_path)
+            logger.info("config_backup_created", backup_path=backup_path)
+
+        # Write the config file
+        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        logger.info("config_file_written", path=CONFIG_FILE)
+        return {"message": "Configuration saved successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("config_file_write_error", error=str(e), path=CONFIG_FILE)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to write config file: {str(e)}"
+        )
+
+
+@app.get("/api/config/env")
+async def read_env_vars() -> Dict[str, str]:
+    """Read environment variables from .env file.
+
+    Returns:
+        Dictionary of environment variable key-value pairs
+
+    Raises:
+        HTTPException: 500 if read fails
+    """
+    try:
+        if not os.path.exists(ENV_FILE):
+            return {}
+
+        env_vars = {}
+        with open(ENV_FILE, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if "=" not in line:
+                    logger.warning(
+                        "env_file_invalid_line", line_num=line_num, line=line
+                    )
+                    continue
+
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+
+                # Remove quotes if present
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                    value = value[1:-1]
+
+                env_vars[key] = value
+
+        logger.info("env_file_read", path=ENV_FILE, var_count=len(env_vars))
+        return env_vars
+
+    except Exception as e:
+        logger.error("env_file_read_error", error=str(e), path=ENV_FILE)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to read .env file: {str(e)}"
+        )
+
+
+@app.put("/api/config/env")
+async def write_env_vars(request: Request) -> Dict[str, str]:
+    """Write environment variables to .env file.
+
+    Args:
+        request: JSON body containing environment variable key-value pairs
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException: 400 if invalid format, 500 if write fails
+    """
+    try:
+        env_vars = await request.json()
+
+        if not isinstance(env_vars, dict):
+            raise HTTPException(
+                status_code=400, detail="Environment variables must be a JSON object"
+            )
+
+        # Validate environment variable names and values
+        for key, value in env_vars.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise HTTPException(
+                    status_code=400, detail="All environment variables must be strings"
+                )
+
+            # Validate key format
+            if not key or not key.replace("_", "").replace("-", "").isalnum():
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid environment variable name: {key}"
+                )
+
+            # Check for problematic characters in values
+            if "\n" in value or "\r" in value:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Environment variable '{key}' cannot contain newline characters",
+                )
+
+        # Create backup before writing
+        if os.path.exists(ENV_FILE):
+            backup_path = (
+                f"{ENV_FILE}.backup.{int(datetime.datetime.now().timestamp())}"
+            )
+            shutil.copy2(ENV_FILE, backup_path)
+            logger.info("env_backup_created", backup_path=backup_path)
+
+        # Write the .env file
+        os.makedirs(os.path.dirname(ENV_FILE), exist_ok=True)
+        with open(ENV_FILE, "w", encoding="utf-8") as f:
+            for key, value in env_vars.items():
+                # Quote values that contain spaces or special characters
+                if " " in value or any(char in value for char in "()[]{}$`\"'\\"):
+                    f.write(f'{key}="{value}"\n')
+                else:
+                    f.write(f"{key}={value}\n")
+
+        logger.info("env_file_written", path=ENV_FILE, var_count=len(env_vars))
+        return {"message": "Environment variables saved successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("env_file_write_error", error=str(e), path=ENV_FILE)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to write .env file: {str(e)}"
+        )
+
+
+@app.post("/api/config/backup")
+async def backup_config_files() -> Dict[str, Any]:
+    """Create timestamped backups of configuration files.
+
+    Returns:
+        Dictionary with backup file paths and timestamp
+
+    Raises:
+        HTTPException: 500 if backup fails
+    """
+    try:
+        timestamp = int(datetime.datetime.now().timestamp())
+        backups = {}
+
+        # Backup agentsystems-config.yml
+        if os.path.exists(CONFIG_FILE):
+            config_backup = f"{CONFIG_FILE}.backup.{timestamp}"
+            shutil.copy2(CONFIG_FILE, config_backup)
+            backups["config"] = config_backup
+
+        # Backup .env file
+        if os.path.exists(ENV_FILE):
+            env_backup = f"{ENV_FILE}.backup.{timestamp}"
+            shutil.copy2(ENV_FILE, env_backup)
+            backups["env"] = env_backup
+
+        logger.info("config_backup_created", backups=backups, timestamp=timestamp)
+        return {
+            "message": "Backup created successfully",
+            "timestamp": timestamp,
+            "backups": backups,
+        }
+
+    except Exception as e:
+        logger.error("config_backup_error", error=str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create backup: {str(e)}"
+        )
 
 
 @app.get("/logs")
