@@ -172,15 +172,19 @@ async def list_agents() -> Dict[str, List[Dict[str, str]]]:
     configured_set = docker_discovery.CONFIGURED_AGENT_NAMES
     running_set = set(docker_discovery.AGENTS.keys())
 
-    # Determine stopped/not-created sets using Docker info when available
+    # Determine stopped/not-created sets using fast Docker API
     stopped_set: set[str]
-    if docker_discovery.client is not None:
-        all_ctrs = {
-            c.labels.get("com.docker.compose.service", c.name)
-            for c in docker_discovery.client.containers.list(
-                all=True, filters={"label": "agent.enabled=true"}
-            )
-        }
+    if docker_discovery.api_client is not None:
+        # Use fast API call instead of expensive client.containers.list()
+        containers = docker_discovery._get_agent_containers_fast()
+        all_ctrs = set()
+        for c in containers:
+            labels = c.get("Labels", {}) or {}
+            name = labels.get("com.docker.compose.service")
+            if not name:
+                names = c.get("Names", [])
+                name = names[0].lstrip("/") if names else c.get("Id", "")[:12]
+            all_ctrs.add(name)
         stopped_set = all_ctrs - running_set
     else:
         # Docker unavailable – nothing running or stopped
@@ -226,13 +230,16 @@ async def list_agents_filtered(filter: AgentsFilter) -> Dict[str, List[str]]:
             selected = running_set | stopped_set
         return {"agents": sorted(selected)}
 
-    # All agent-labeled containers (running or stopped)
-    all_ctrs = {
-        c.labels.get("com.docker.compose.service", c.name)
-        for c in docker_discovery.client.containers.list(
-            all=True, filters={"label": "agent.enabled=true"}
-        )
-    }
+    # All agent-labeled containers (running or stopped) - use fast API
+    containers = docker_discovery._get_agent_containers_fast()
+    all_ctrs = set()
+    for c in containers:
+        labels = c.get("Labels", {}) or {}
+        name = labels.get("com.docker.compose.service")
+        if not name:
+            names = c.get("Names", [])
+            name = names[0].lstrip("/") if names else c.get("Id", "")[:12]
+        all_ctrs.add(name)
     not_created_set = configured_set - all_ctrs
     stopped_set = (all_ctrs - running_set) | not_created_set
 
