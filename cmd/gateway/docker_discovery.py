@@ -2,8 +2,9 @@
 
 import asyncio
 import threading
-from typing import Dict, Set, Optional, Any
+from typing import Dict, Set, Optional, Any, List
 import docker
+from docker import APIClient
 import structlog
 
 logger = structlog.get_logger()
@@ -16,59 +17,98 @@ AGENT_IP_MAP: Dict[str, str] = {}
 # Names of agents defined in agentsystems-config.yml (may have no container yet)
 CONFIGURED_AGENT_NAMES: Set[str] = set()
 
-# Docker client instance
+# Docker client instances
 client: Optional[docker.DockerClient]
+api_client: Optional[APIClient]
 try:
     client = docker.DockerClient.from_env()
+    api_client = APIClient(base_url="unix://var/run/docker.sock", version="auto")
 except Exception as e:
     logger.warning("docker_unavailable", error=str(e))
     client = None
+    api_client = None
+
+
+def _get_agent_containers_fast() -> List[Dict[str, Any]]:
+    """Get all agent containers using fast low-level API.
+
+    Returns raw container data from Docker API without expensive per-container inspect.
+    Much faster than client.containers.list() + c.attrs for each container.
+    """
+    if not api_client:
+        logger.info("skip_fast_discovery_api_unavailable")
+        return []
+
+    try:
+        # Single fast API call - gets all container info including networks, labels, state
+        containers = api_client.containers(
+            all=True, filters={"label": ["agent.enabled=true"]}
+        )
+        logger.debug("fast_containers_retrieved", count=len(containers))
+        return containers
+    except Exception as e:
+        logger.error("fast_containers_failed", error=str(e))
+        return []
 
 
 def refresh_agents() -> None:
     """Scan all containers for 'agent.enabled=true' labels and populate AGENTS."""
     global AGENTS, AGENT_IP_MAP
-    if not client:
-        logger.info("skip_agent_discovery_docker_unavailable")
+    if not api_client:
+        logger.info("skip_agent_discovery_api_unavailable")
         return
 
     discovered: Dict[str, str] = {}
     ip_map: Dict[str, str] = {}
-    try:
-        containers = client.containers.list(
-            filters={"label": "agent.enabled=true", "status": "running"}
-        )
-        for c in containers:
-            # Extract name from compose service label or container name
-            # Use the service name exactly as defined in docker-compose
-            name = c.labels.get("com.docker.compose.service", c.name)
-            port = c.labels.get("agent.port", "8000")
 
-            # Get the container's IP on the agents-int network
-            networks = c.attrs.get("NetworkSettings", {}).get("Networks", {})
-            agents_int = networks.get("agents-int", {})
-            container_ip = agents_int.get("IPAddress")
+    try:
+        # Use fast API call instead of expensive client.containers.list() + c.attrs
+        containers = _get_agent_containers_fast()
+
+        for c in containers:
+            # Only process running containers for AGENTS registry
+            state = c.get("State", "")
+            if state != "running":
+                continue
+
+            # Extract name from compose service label or container name
+            labels = c.get("Labels", {}) or {}
+            name = labels.get("com.docker.compose.service")
+            if not name:
+                # Fallback to first name without leading slash
+                names = c.get("Names", [])
+                name = names[0].lstrip("/") if names else c.get("Id", "")[:12]
+
+            port = labels.get("agent.port", "8000")
+
+            # Try to get container IP from NetworkSettings (already included in response)
+            container_ip = None
+            network_settings = c.get("NetworkSettings", {})
+            if network_settings:
+                networks = network_settings.get("Networks", {})
+                agents_int = networks.get("agents-int", {})
+                container_ip = agents_int.get("IPAddress")
 
             if container_ip:
                 discovered[name] = f"http://{container_ip}:{port}/invoke"
                 ip_map[container_ip] = name
-                logger.info(
-                    "agent_discovered",
+                logger.debug(
+                    "agent_discovered_fast",
                     name=name,
                     target=discovered[name],
-                    container_id=c.short_id,
+                    container_id=c.get("Id", "")[:12],
                 )
             else:
                 # Fallback to container name if not on agents-int network
                 discovered[name] = f"http://{name}:{port}/invoke"
-                logger.warning(
-                    "agent_no_ip_fallback",
+                logger.debug(
+                    "agent_name_fallback_fast",
                     name=name,
-                    container_id=c.short_id,
+                    container_id=c.get("Id", "")[:12],
                 )
 
     except Exception as e:
-        logger.error("refresh_agents_failed", error=str(e))
+        logger.error("refresh_agents_fast_failed", error=str(e))
         return
 
     with AGENT_LOCK:
