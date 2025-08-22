@@ -1611,3 +1611,99 @@ async def get_version() -> Dict[str, Any]:
         }
 
     return {"component": "agent-control-plane", **version_data}
+
+
+@app.get("/versions")
+async def get_available_versions() -> Dict[str, Any]:
+    """Get available versions of agent-control-plane from GHCR.
+
+    Returns:
+        Dictionary with current version, available versions, and update status
+    """
+    import httpx
+
+    # Configuration
+    OWNER = "agentsystems"
+    PACKAGE = "agent-control-plane"
+    PER_PAGE = 100
+
+    try:
+        # Get current version
+        current_version_data = await get_version()
+        current_version = current_version_data.get("version", "unknown")
+
+        # Step 1: Get anonymous token for GHCR
+        token_url = f"https://ghcr.io/token?service=ghcr.io&scope=repository:{OWNER}/{PACKAGE}:pull"
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            token_resp = await client.get(token_url)
+            token_resp.raise_for_status()
+            token = token_resp.json()["token"]
+
+            # Step 2: Get all tags from GHCR
+            tags = []
+            url = f"https://ghcr.io/v2/{OWNER}/{PACKAGE}/tags/list?n={PER_PAGE}"
+            headers = {"Authorization": f"Bearer {token}"}
+
+            while url:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+
+                data = resp.json()
+                if "tags" in data and data["tags"]:
+                    tags.extend(data["tags"])
+
+                # Parse pagination from Link header
+                link_header = resp.headers.get("Link", "")
+                if link_header and 'rel="next"' in link_header:
+                    # Extract URL between <...>
+                    start = link_header.find("<") + 1
+                    end = link_header.find(">", start)
+                    url = link_header[start:end] if start > 0 and end > start else None
+                else:
+                    url = None
+
+            # Filter to only semantic versions (x.y.z format)
+            import re
+
+            semantic_versions = []
+            for tag in tags:
+                # Only include strict semantic versions (x.y.z)
+                if re.match(r"^\d+\.\d+\.\d+$", tag):
+                    semantic_versions.append(tag)
+
+            # Sort semantic versions properly by version numbers
+            def version_key(v):
+                return tuple(map(int, v.split(".")))
+
+            sorted_versions = sorted(semantic_versions, key=version_key, reverse=True)
+            latest_version = sorted_versions[0] if sorted_versions else "unknown"
+
+            # Determine if update is available
+            update_available = (
+                current_version != "unknown"
+                and latest_version != "unknown"
+                and current_version != latest_version
+                and current_version not in ["development", "latest"]
+            )
+
+            return {
+                "component": "agent-control-plane",
+                "current_version": current_version,
+                "available_versions": sorted_versions,
+                "latest_version": latest_version,
+                "update_available": update_available,
+                "registry": f"ghcr.io/{OWNER}/{PACKAGE}",
+            }
+
+    except Exception as e:
+        logger.error("get_versions_failed", error=str(e))
+        # Return fallback data on any error
+        return {
+            "component": "agent-control-plane",
+            "current_version": current_version,
+            "available_versions": [],
+            "latest_version": "unknown",
+            "update_available": False,
+            "error": f"Failed to query registry: {str(e)}",
+        }
