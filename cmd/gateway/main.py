@@ -1578,3 +1578,36 @@ async def health() -> Dict[str, Any]:
         Dictionary with status 'ok' and list of discovered agents
     """
     return {"status": "ok", "agents": list(docker_discovery.AGENTS.keys())}
+
+
+@app.get("/version")
+async def get_version() -> Dict[str, Any]:
+    """Get version information for the Agent Control Plane.
+
+    Returns:
+        Dictionary with version, build timestamp, and git commit information
+    """
+    import json
+    import os
+
+    try:
+        # Try to read version from build-time injected file
+        if os.path.exists("/app/version.json"):
+            with open("/app/version.json", "r") as f:
+                version_data = json.load(f)
+        else:
+            # Fallback for development/local builds
+            version_data = {
+                "version": "development",
+                "build_timestamp": "unknown",
+                "git_commit": "unknown",
+            }
+    except Exception:
+        # Fallback on any error
+        version_data = {
+            "version": "unknown",
+            "build_timestamp": "unknown",
+            "git_commit": "unknown",
+        }
+
+    return {"component": "agent-control-plane", **version_data}

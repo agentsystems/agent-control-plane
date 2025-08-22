@@ -3,6 +3,11 @@
 # Builds the FastAPI gateway located in ./gateway
 # -----------------------------------------------------------------------------
 
+# Build args for version injection
+ARG VERSION=unknown
+ARG BUILD_TIMESTAMP=unknown
+ARG GIT_COMMIT=unknown
+
 # -----------------------------------------------------------------------------
 # Builder stage – install Python deps and collect licenses
 # -----------------------------------------------------------------------------
@@ -91,6 +96,11 @@ RUN pip uninstall -y pip-licenses || true
 # -----------------------------------------------------------------------------
 FROM python:3.12-slim@sha256:4600f71648e110b005bf7bca92dbb335e549e6b27f2e83fceee5e11b3e1a4d01
 
+# Re-declare args for final stage
+ARG VERSION=unknown
+ARG BUILD_TIMESTAMP=unknown
+ARG GIT_COMMIT=unknown
+
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
@@ -104,13 +114,19 @@ COPY LICENSE /app/LICENSE
 # Copy license/attribution artifacts
 COPY --from=builder /app/licenses /app/licenses
 
+# Create version file for runtime access
+RUN echo "{\"version\": \"${VERSION}\", \"build_timestamp\": \"${BUILD_TIMESTAMP}\", \"git_commit\": \"${GIT_COMMIT}\"}" > /app/version.json
+
 # Optional OCI label pointing to license bundle location
 LABEL org.opencontainers.image.title="AgentSystems Control Plane" \
       org.opencontainers.image.description="Gateway for managing and orchestrating AI agents" \
       org.opencontainers.image.vendor="AgentSystems" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.license.files="/app/licenses" \
-      org.opencontainers.image.source="https://github.com/agentsystems/agent-control-plane"
+      org.opencontainers.image.source="https://github.com/agentsystems/agent-control-plane" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_TIMESTAMP}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}"
 
 EXPOSE 8080
 
