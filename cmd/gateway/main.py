@@ -1613,27 +1613,14 @@ async def get_version() -> Dict[str, Any]:
     return {"component": "agent-control-plane", **version_data}
 
 
-@app.get("/versions")
-async def get_available_versions() -> Dict[str, Any]:
-    """Get available versions of agent-control-plane from GHCR.
-
-    Returns:
-        Dictionary with current version, available versions, and update status
-    """
+async def _get_registry_versions(owner: str, package: str) -> Dict[str, Any]:
+    """Helper function to get versions from GHCR for a specific package."""
     import httpx
-
-    # Configuration
-    OWNER = "agentsystems"
-    PACKAGE = "agent-control-plane"
-    PER_PAGE = 100
+    import re
 
     try:
-        # Get current version
-        current_version_data = await get_version()
-        current_version = current_version_data.get("version", "unknown")
-
         # Step 1: Get anonymous token for GHCR
-        token_url = f"https://ghcr.io/token?service=ghcr.io&scope=repository:{OWNER}/{PACKAGE}:pull"
+        token_url = f"https://ghcr.io/token?service=ghcr.io&scope=repository:{owner}/{package}:pull"
 
         async with httpx.AsyncClient(timeout=10) as client:
             token_resp = await client.get(token_url)
@@ -1642,7 +1629,7 @@ async def get_available_versions() -> Dict[str, Any]:
 
             # Step 2: Get all tags from GHCR
             tags = []
-            url = f"https://ghcr.io/v2/{OWNER}/{PACKAGE}/tags/list?n={PER_PAGE}"
+            url = f"https://ghcr.io/v2/{owner}/{package}/tags/list?n=100"
             headers = {"Authorization": f"Bearer {token}"}
 
             while url:
@@ -1656,7 +1643,6 @@ async def get_available_versions() -> Dict[str, Any]:
                 # Parse pagination from Link header
                 link_header = resp.headers.get("Link", "")
                 if link_header and 'rel="next"' in link_header:
-                    # Extract URL between <...>
                     start = link_header.find("<") + 1
                     end = link_header.find(">", start)
                     url = link_header[start:end] if start > 0 and end > start else None
@@ -1664,11 +1650,8 @@ async def get_available_versions() -> Dict[str, Any]:
                     url = None
 
             # Filter to only semantic versions (x.y.z format)
-            import re
-
             semantic_versions = []
             for tag in tags:
-                # Only include strict semantic versions (x.y.z)
                 if re.match(r"^\d+\.\d+\.\d+$", tag):
                     semantic_versions.append(tag)
 
@@ -1679,31 +1662,116 @@ async def get_available_versions() -> Dict[str, Any]:
             sorted_versions = sorted(semantic_versions, key=version_key, reverse=True)
             latest_version = sorted_versions[0] if sorted_versions else "unknown"
 
-            # Determine if update is available
-            update_available = (
-                current_version != "unknown"
-                and latest_version != "unknown"
-                and current_version != latest_version
-                and current_version not in ["development", "latest"]
-            )
-
             return {
-                "component": "agent-control-plane",
-                "current_version": current_version,
                 "available_versions": sorted_versions,
                 "latest_version": latest_version,
-                "update_available": update_available,
-                "registry": f"ghcr.io/{OWNER}/{PACKAGE}",
             }
 
     except Exception as e:
-        logger.error("get_versions_failed", error=str(e))
-        # Return fallback data on any error
+        logger.error("get_registry_versions_failed", package=package, error=str(e))
+        return {"available_versions": [], "latest_version": "unknown"}
+
+
+@app.get("/component-versions")
+async def get_component_versions(offline: bool = False) -> Dict[str, Any]:
+    """Get version information for all AgentSystems platform components.
+
+    Args:
+        offline: If True, only return current versions without querying GHCR registry
+
+    Returns:
+        Dictionary with version info for agent-control-plane, agentsystems-ui, and SDK
+    """
+    import httpx
+
+    components = {}
+
+    try:
+        # 1. Get Agent Control Plane versions
+        acp_current = await get_version()
+        acp_current_version = acp_current.get("version", "unknown")
+
+        if offline:
+            # Offline mode - only current version, no registry queries
+            components["agent-control-plane"] = {
+                "current_version": acp_current_version,
+                "mode": "offline",
+            }
+        else:
+            # Online mode - query GHCR for available versions
+            acp_versions = await _get_registry_versions(
+                "agentsystems", "agent-control-plane"
+            )
+            acp_update_available = (
+                acp_current_version != "unknown"
+                and acp_versions["latest_version"] != "unknown"
+                and acp_current_version != acp_versions["latest_version"]
+                and acp_current_version not in ["development", "latest"]
+            )
+
+            components["agent-control-plane"] = {
+                "current_version": acp_current_version,
+                "available_versions": acp_versions["available_versions"],
+                "latest_version": acp_versions["latest_version"],
+                "update_available": acp_update_available,
+                "registry": "ghcr.io/agentsystems/agent-control-plane",
+            }
+
+        # 2. Get AgentSystems UI versions
+        try:
+            # Query UI container for its version
+            async with httpx.AsyncClient(timeout=5) as client:
+                ui_resp = await client.get("http://agentsystems-ui:80/version")
+                ui_current = (
+                    ui_resp.json()
+                    if ui_resp.status_code == 200
+                    else {"version": "unknown"}
+                )
+        except Exception as e:
+            logger.warning("ui_version_query_failed", error=str(e))
+            ui_current = {"version": "unknown"}
+
+        ui_current_version = ui_current.get("version", "unknown")
+
+        if offline:
+            # Offline mode - only current version, no registry queries
+            components["agentsystems-ui"] = {
+                "current_version": ui_current_version,
+                "mode": "offline",
+            }
+        else:
+            # Online mode - query GHCR for available versions
+            ui_versions = await _get_registry_versions(
+                "agentsystems", "agentsystems-ui"
+            )
+            ui_update_available = (
+                ui_current_version != "unknown"
+                and ui_versions["latest_version"] != "unknown"
+                and ui_current_version != ui_versions["latest_version"]
+                and ui_current_version not in ["development", "latest"]
+            )
+
+            components["agentsystems-ui"] = {
+                "current_version": ui_current_version,
+                "available_versions": ui_versions["available_versions"],
+                "latest_version": ui_versions["latest_version"],
+                "update_available": ui_update_available,
+                "registry": "ghcr.io/agentsystems/agentsystems-ui",
+            }
+
         return {
-            "component": "agent-control-plane",
-            "current_version": current_version,
-            "available_versions": [],
-            "latest_version": "unknown",
-            "update_available": False,
-            "error": f"Failed to query registry: {str(e)}",
+            "platform": "agentsystems",
+            "mode": "offline" if offline else "online",
+            "components": components,
+        }
+
+    except Exception as e:
+        logger.error("get_component_versions_failed", error=str(e))
+        return {
+            "platform": "agentsystems",
+            "components": {
+                "agent-control-plane": {"error": "Failed to get version info"},
+                "agentsystems-ui": {"error": "Failed to get version info"},
+            },
+            "error": f"Failed to query component versions: {str(e)}",
         }
