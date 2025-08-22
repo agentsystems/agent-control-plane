@@ -236,6 +236,10 @@ jobs:
           load: ${{ needs.validate.outputs.should_push == 'false' }}
           tags: ${{ needs.validate.outputs.docker_tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.validate.outputs.version }}
+            BUILD_TIMESTAMP=${{ steps.meta.outputs.labels.created }}
+            GIT_COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # Attestations only work with push, not with load
