@@ -335,16 +335,16 @@ async def stop_agent(agent: str) -> Dict[str, Any]:
         if container.status != "running":
             raise HTTPException(status_code=400, detail="Agent is not running")
 
-        container.stop()
+        container.remove(force=True)
         logger.info(
-            "agent_stopped_via_api", agent=agent, container_id=container.short_id
+            "agent_removed_via_api", agent=agent, container_id=container.short_id
         )
 
         # Clear last seen time and refresh agent registry
         lifecycle.clear_last_seen(agent)
         docker_discovery.refresh_agents()
 
-        return {"success": True, "message": f"Agent {agent} stopped successfully"}
+        return {"success": True, "message": f"Agent {agent} removed successfully"}
 
     except HTTPException:
         raise
