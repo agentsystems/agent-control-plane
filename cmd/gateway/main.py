@@ -1,6 +1,5 @@
 import asyncio
 import os
-import subprocess
 import uuid
 import json
 import yaml
@@ -1569,62 +1568,6 @@ async def get_recent_logs(limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         raise HTTPException(
             status_code=500, detail=f"Failed to retrieve logs: {str(e)}"
         )
-
-
-@app.post("/system/restart")
-async def request_platform_restart() -> Dict[str, Any]:
-    """Execute a full platform restart to apply configuration changes.
-
-    This endpoint triggers an automatic restart of the entire AgentSystems platform
-    by executing the agentsystems restart command. The restart includes:
-    - Stopping all services
-    - Cleaning agent containers and networks
-    - Starting fresh services with updated configuration
-
-    Returns:
-        Dictionary with restart initiation status
-
-    Note:
-        The gateway will become unavailable during restart. The UI should
-        poll the /health endpoint to detect when restart is complete.
-    """
-    logger.info("platform_restart_initiated_via_ui")
-
-    # Execute restart in background - gateway will be restarted as part of this
-    asyncio.create_task(_restart_platform())
-
-    return {
-        "status": "restart_initiated",
-        "message": "Platform restart in progress. Gateway will become unavailable briefly.",
-        "poll_endpoint": "/health",
-    }
-
-
-async def _restart_platform() -> None:
-    """Background task to restart the entire platform.
-
-    Executes the agentsystems restart command which handles:
-    - Stopping all services and agent containers
-    - Cleaning networks and stale state
-    - Starting fresh services with current configuration
-    """
-    try:
-        # Small delay to allow the response to be sent before restart begins
-        await asyncio.sleep(1)
-
-        logger.info("executing_platform_restart", command="agentsystems restart")
-
-        # Execute restart command from the deployment directory
-        # The gateway container has the deployment mounted at /workspace
-        subprocess.run(["agentsystems", "restart"], cwd="/workspace", check=True)
-
-        logger.info("platform_restart_completed")
-
-    except Exception as e:
-        logger.error(
-            "platform_restart_failed", error=str(e), command="agentsystems restart"
-        )
-        # Note: If restart fails, the gateway might still be running to log this error
 
 
 @app.get("/health")
