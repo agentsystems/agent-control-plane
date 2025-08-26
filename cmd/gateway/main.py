@@ -498,7 +498,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                 docker_discovery.AGENTS[agent],
                 json=payload,
                 headers={"X-Thread-Id": thread_id},
-                timeout=60,
+                timeout=7200,
             )
 
     # ------------------------------------------------------------------
@@ -564,7 +564,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                     docker_discovery.AGENTS[agent],
                     json=payload,
                     headers={"X-Thread-Id": thread_id},
-                    timeout=60,
+                    timeout=7200,
                 )
                 try:
                     parsed = r.json()
