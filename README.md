@@ -1,6 +1,13 @@
 # Agent Control Plane
 
+[![GitHub stars](https://img.shields.io/github/stars/agentsystems/agentsystems?style=flat-square&logo=github)](https://github.com/agentsystems/agentsystems/stargazers)
 [![CI](https://github.com/agentsystems/agent-control-plane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/agentsystems/agent-control-plane/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/agentsystems/agent-control-plane/graph/badge.svg?token=C8QBKRD06Z)](https://codecov.io/gh/agentsystems/agent-control-plane)
+
+> [!NOTE]
+> **Public Beta** - Part of the AgentSystems platform. Official public launch September 15, 2025.
+> ⭐ [**Star the main repository**](https://github.com/agentsystems/agentsystems) to show your support!
+
+> This is the **gateway and orchestration layer** for AgentSystems. See the [main repository](https://github.com/agentsystems/agentsystems) for platform overview and documentation.
 
 The **Agent Control Plane** (ACP) is the HTTP gateway and core services layer that fronts every AgentSystems deployment.
 
@@ -162,7 +169,7 @@ The gateway automatically:
 
 1. **Creates thread directories**: `/artifacts/{thread-id}/{in,out}/` for each request
 2. **Saves uploaded files**: Files go to `/artifacts/{thread-id}/in/{filename}`
-3. **Sets permissions**: Ensures agents (UID 1001) can access files
+3. **Sets permissions**: Attempts to configure agents (UID 1001) for file access
 4. **Enforces limits**: Default 200MB upload limit (configurable via `ACP_MAX_UPLOAD_MB`)
 
 ### Thread-Centric Structure
@@ -262,7 +269,7 @@ The gateway is organized into focused modules:
 4. **Egress control**: HTTP proxy restricts agent outbound requests to allowlisted URLs
 5. **File uploads**: Handles multipart uploads with automatic artifact management
 6. **Async by default**: Non-blocking invocations with status polling
-7. **Type safety**: Full type hints for better IDE support and early error detection
+7. **Type safety**: Full type hints for better IDE support
 
 ## Contributing
 
@@ -534,3 +541,7 @@ curl -X POST http://localhost:18080/invoke/my_fourth_agent \
 Agents   → FastAPI apps in `my_*_agent/`, read their own `agent.yaml`
 Labels   → `agent.enabled=true` & `agent.port=8000` tell the gateway to route
 -->
+
+## License
+
+All use of this software is governed by the [LICENSE](LICENSE).
