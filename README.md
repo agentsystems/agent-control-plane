@@ -410,7 +410,7 @@ pip install -e .[dev]
 ACP_BIND_PORT=8088 uvicorn cmd.gateway.main:app --reload --port ${ACP_BIND_PORT:-8080}
 ```
 
- (either with Docker or `uvicorn agent.main:app`) and the gateway will auto-register it if the container is labelled `agent.enabled=true` and exposes the port declared in `agent.port`.
+ (either with Docker or `uvicorn agent.main:app`) and the gateway auto-registers when the container is labeled `agent.enabled=true` and exposes the configured port (once health checks pass).
 
  (gateway + Postgres + example agent, etc.) use the **agent-platform-deployments** repo:
 

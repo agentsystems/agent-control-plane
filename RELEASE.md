@@ -122,6 +122,6 @@ docker push ghcr.io/agentsystems/agent-control-plane:latest
 
 - The `latest` tag only updates when `tag_release` is set to `true`
 - All releases are manual through GitHub Actions UI
-- All images include full license compliance in `/app/licenses/`
+- Images include third-party license metadata in `/app/licenses/`
 - Multi-platform images support both linux/amd64 and linux/arm64
 - This follows the same manual release pattern as agentsystems-sdk

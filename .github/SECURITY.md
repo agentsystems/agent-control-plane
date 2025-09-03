@@ -7,7 +7,7 @@ We currently maintain the latest minor releases only. Please upgrade to the most
 
 ## Disclosure Process
 1. Email us with steps to reproduce and any PoC code.
-2. We confirm the vulnerability and work on a fix.
+2. We review the report and, if confirmed, work to address it.
 3. When a patch release is ready, we coordinate a public disclosure.
 
 Thank you for helping keep the project secure.
