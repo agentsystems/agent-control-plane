@@ -1,6 +1,6 @@
 # Security Policy
 
-If you believe you have found a security vulnerability in AgentSystems, please email **security@agentsystems.ai** with details. We will acknowledge your report within **2 business days** and aim to provide a resolution timeline.
+If you believe you have found a security vulnerability in AgentSystems, please email **security@agentsystems.ai** with details. We aim to acknowledge within 2 business days and, when feasible, provide an estimated timeline.
 
 ## Supported Versions
 We currently maintain the latest minor releases only. Please upgrade to the most recent version before filing a report.

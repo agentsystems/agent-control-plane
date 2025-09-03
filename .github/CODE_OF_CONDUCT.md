@@ -44,8 +44,7 @@ individual is officially representing the project in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the maintainers at **security@agentsystems.ai**. All complaints will
-be reviewed and investigated promptly and fairly.
+reported to the maintainers at **security@agentsystems.ai**. We aim to review and investigate complaints as appropriate.
 
 ## Attribution
 
