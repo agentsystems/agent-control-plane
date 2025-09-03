@@ -1,130 +1,67 @@
-# Contributing to `agent-control-plane`
+# Contributing to Agent Control Plane
 
-This document explains **how to cut a new Docker image release** for the Gateway / core services.  All user-facing docs stay in the top-level `README.md`; the steps below are for contributors and maintainers.
+Thank you for your interest in contributing to AgentSystems! This project consists of multiple repositories working together to provide a complete AI agent platform.
 
----
+## Repository Structure
 
-## 0 – Dev environment setup
+AgentSystems is organized into several focused repositories:
 
+- **[agentsystems](https://github.com/agentsystems/agentsystems)** - Main documentation and platform overview
+- **[agent-control-plane](https://github.com/agentsystems/agent-control-plane)** - Gateway and orchestration services (this repo)
+- **[agentsystems-sdk](https://github.com/agentsystems/agentsystems-sdk)** - CLI and deployment tools
+- **[agentsystems-ui](https://github.com/agentsystems/agentsystems-ui)** - Web interface
+- **[agentsystems-toolkit](https://github.com/agentsystems/agentsystems-toolkit)** - Development libraries
+- **[agent-template](https://github.com/agentsystems/agent-template)** - Reference implementation
+
+## Getting Started
+
+### Development Setup
 ```bash
-# 1. (optional) create virtualenv
+# Clone and setup
+git clone https://github.com/agentsystems/agent-control-plane.git
+cd agent-control-plane
+
+# Create virtual environment
 python -m venv .venv && source .venv/bin/activate
-
-# 2. install dev dependencies and git hooks
 pip install -r requirements-dev.txt
-pre-commit install
+
+# Run tests
+pytest --cov=cmd --cov-report=term-missing
+
+# Start development server
+uvicorn cmd.gateway.main:app --reload --port 8080
 ```
 
-Running `git commit` now triggers ruff, black, shellcheck, hadolint, etc.  You can lint the whole repo with:
+### Making Changes
+1. **Fork** this repository
+2. **Create a feature branch** from main
+3. **Make your changes** with appropriate tests
+4. **Submit a pull request** with a clear description
 
-```bash
-pre-commit run --all-files
-```
+## Code Standards
 
----
+- Follow the existing code style in each repository
+- Include tests for new functionality
+- Update documentation as needed
+- Use clear, descriptive commit messages
+- Add type hints to all new functions
+- Include docstrings for public APIs
 
-## 1 – Prerequisites
+## Pull Request Process
 
-| Requirement | Why it is needed |
-|-------------|-----------------|
-| Docker ≥ 24 with **Buildx / `buildx bake`** | multi-architecture (`linux/amd64` + `linux/arm64`) image build |
-| QEMU static emulation binaries (`docker run --privileged tonistiigi/binfmt`) | cross-build support for arm64 on amd64 hosts |
-| Write access to **Docker Hub** repo `agentsystems/agent-control-plane` | push images |
-| Local clone with a clean **`main`** branch | the script tags the current commit |
-| Git configured with push rights (or PAT) | pushes Git tags |
+1. Update documentation if you're changing functionality
+2. Add tests for new features
+3. Ensure all CI checks pass
+4. Request review from maintainers
 
----
+## Community Guidelines
 
-## 2 – Versioning Rules
+Please read our [Code of Conduct](CODE_OF_CONDUCT.md) to understand our community standards.
 
-* **Semantic Versioning** – `MAJOR.MINOR.PATCH`.
-* Git tag **must be prefixed** with `v` (e.g. `v0.4.0`).
-* Docker tag is the same number **without** the `v` (e.g. `0.4.0`).
-* The script also tags every release as `latest`.
-* Versions must be **monotonically increasing** – the script aborts if a higher tag already exists.
+## Questions?
 
----
+- **General questions**: Open a discussion in the [main repository](https://github.com/agentsystems/agentsystems)
+- **Bug reports**: Create an issue in this repository
+- **Real-time chat**: Join our [Discord community](https://discord.gg/gkfwXsBb)
 
-## 3 – Standard Release (one-liner)
-
-```bash
-./build_and_release.sh --version 0.4.0 --push
-```
-
-The script will display a summary and ask for confirmation before proceeding.
-
-What happens after you confirm:
-
-1. Checks that **`v0.4.0`** Git tag doesn’t exist.
-2. Builds multi-arch image using Buildx.
-3. Pushes both `0.4.0` and `latest` tags to Docker Hub.
-4. Automatically creates and pushes Git tag **`v0.4.0`** pointing to the current commit.
-
-> Tip – Omit `--push` to build locally without pushing / tagging.
-
----
-
-## 4 – Verify the image
-
-```bash
-docker run --rm -p 8080:8080 agentsystems/agent-control-plane:0.4.0
-# then open http://localhost:8080/docs
-```
-
-Check logs for `Application startup complete` and ensure the Swagger UI loads.
-
----
-
-## 5 – Post-release tasks
-
-* The **local Docker Compose / Helm deployments** track the `:latest` tag, so no manifest change is required.
-* If you *pin* versions in an env (e.g. staging), update the tag there.
-* Add an entry to `CHANGELOG.md`.
-
----
-
-## 6 – Continuous Delivery (future)
-
-A GitHub Action can call the same script on **tag push**:
-
-```yaml
-name: Release
-on:
-  push:
-    tags: ["v*.*.*"]
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-      - name: QEMU
-        uses: docker/setup-qemu-action@v2
-      - name: Build & push
-        run: ./build_and_release.sh --version ${GITHUB_REF#refs/tags/v} --push
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-```
-
----
-
-## 7 – Local Development Loop
-
-Need an iterative build without pushing to Hub?
-
-```bash
-./build_and_release.sh --version dev --no-cache
-# or: docker build -t agent-control-plane:dev .
-```
-
-Then run `docker compose up gateway` from the deployments repo and point the service to `agent-control-plane:dev`.
-
----
-
-### Why no `--git-tag` flag?
-
-Tagging is mandatory for every pushed image, ensuring a one-to-one mapping between Docker images and source commits. This prevents “orphan” images and keeps release history clean.
-
-Happy shipping! 🚀
+We appreciate all contributions, from typo fixes to major features!
