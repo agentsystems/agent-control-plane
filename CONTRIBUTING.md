@@ -62,6 +62,6 @@ Please read our [Code of Conduct](CODE_OF_CONDUCT.md) to understand our communit
 
 - **General questions**: Open a discussion in the [main repository](https://github.com/agentsystems/agentsystems)
 - **Bug reports**: Create an issue in this repository
-- **Real-time chat**: Join our [Discord community](https://discord.gg/gkfwXsBb)
+- **Real-time chat**: Join our [Discord community](https://discord.gg/H26CEWfT)
 
 We appreciate all contributions, from typo fixes to major features!
