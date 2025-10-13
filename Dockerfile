@@ -11,7 +11,7 @@ ARG GIT_COMMIT=unknown
 # -----------------------------------------------------------------------------
 # Builder stage – install Python deps and collect licenses
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim@sha256:4600f71648e110b005bf7bca92dbb335e549e6b27f2e83fceee5e11b3e1a4d01 AS builder
+FROM python:3.14-slim@sha256:5cfac249393fa6c7ebacaf0027a1e127026745e603908b226baa784c52b9d99b AS builder
 
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
@@ -94,7 +94,7 @@ RUN pip uninstall -y pip-licenses || true
 # -----------------------------------------------------------------------------
 # Final stage – minimal, non-root image
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim@sha256:4600f71648e110b005bf7bca92dbb335e549e6b27f2e83fceee5e11b3e1a4d01
+FROM python:3.14-slim@sha256:5cfac249393fa6c7ebacaf0027a1e127026745e603908b226baa784c52b9d99b
 
 # Re-declare args for final stage
 ARG VERSION=unknown
