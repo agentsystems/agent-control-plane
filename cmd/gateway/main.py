@@ -1190,7 +1190,12 @@ async def read_agentsystems_config() -> Dict[str, Any]:
     try:
         if not os.path.exists(CONFIG_FILE):
             # Return default config if file doesn't exist
-            return {"config_version": 1, "registry_connections": {}, "agents": []}
+            return {
+                "config_version": 1,
+                "index_connections": {},
+                "registry_connections": {},
+                "agents": [],
+            }
 
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
@@ -1258,6 +1263,31 @@ async def write_agentsystems_config(request: Request) -> Dict[str, str]:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Registry '{reg_id}' missing required 'auth' field",
+                )
+
+        # Validate index connections structure (optional)
+        index_connections = config.get("index_connections", {})
+        if not isinstance(index_connections, dict):
+            raise HTTPException(
+                status_code=400, detail="index_connections must be an object"
+            )
+
+        for idx_id, idx_config in index_connections.items():
+            if not isinstance(idx_config, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Index '{idx_id}' config must be an object",
+                )
+            if "url" not in idx_config:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Index '{idx_id}' missing required 'url' field",
+                )
+            # enabled defaults to false, description is optional
+            if "enabled" in idx_config and not isinstance(idx_config["enabled"], bool):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Index '{idx_id}' 'enabled' field must be a boolean",
                 )
 
         # Validate agents structure
