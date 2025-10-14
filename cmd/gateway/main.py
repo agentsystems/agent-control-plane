@@ -423,11 +423,14 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
     # Extract optional sync flag; default False (async)
     sync_flag = bool(payload.pop("sync", False))
 
+    # Get the full agent identifier (registry_url/repo) for database storage
+    agent_identifier = egress.get_agent_identifier(agent)
+
     thread_id = str(uuid.uuid4())
-    await database.insert_job_row(thread_id, agent, auth, payload)
+    await database.insert_job_row(thread_id, agent_identifier, auth, payload)
 
     # Audit logging: record the incoming request
-    await database.audit_invoke_request(auth, thread_id, agent, payload)
+    await database.audit_invoke_request(auth, thread_id, agent_identifier, payload)
 
     # ------------------------------------------------------------------
     # Stage uploaded file(s) into artifacts volume if present
@@ -530,7 +533,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
             )
             # Audit logging: record successful response
             await database.audit_invoke_response(
-                auth, thread_id, agent, r.status_code, resp_json
+                auth, thread_id, agent_identifier, r.status_code, resp_json
             )
             # Ensure thread id for compatibility
             resp_json.setdefault("thread_id", thread_id)
@@ -544,7 +547,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
             )
             # Audit logging: record error response
             await database.audit_invoke_response(
-                auth, thread_id, agent, 500, error_msg=str(e)
+                auth, thread_id, agent_identifier, 500, error_msg=str(e)
             )
             raise
 
@@ -591,7 +594,11 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                     )
                     # Audit logging: record error response
                     await database.audit_invoke_response(
-                        auth, thread_id, agent, r.status_code, error_msg=error_msg
+                        auth,
+                        thread_id,
+                        agent_identifier,
+                        r.status_code,
+                        error_msg=error_msg,
                     )
                 else:
                     await database.update_job_record(
@@ -602,7 +609,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                     )
                     # Audit logging: record successful response
                     await database.audit_invoke_response(
-                        auth, thread_id, agent, r.status_code, parsed
+                        auth, thread_id, agent_identifier, r.status_code, parsed
                     )
             except Exception as e:
                 await database.update_job_record(
@@ -613,7 +620,7 @@ async def invoke_async(agent: str, request: Request) -> Dict[str, Any]:
                 )
                 # Audit logging: record error response
                 await database.audit_invoke_response(
-                    auth, thread_id, agent, 500, error_msg=str(e)
+                    auth, thread_id, agent_identifier, 500, error_msg=str(e)
                 )
 
     asyncio.create_task(_worker())
