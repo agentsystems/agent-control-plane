@@ -4,7 +4,7 @@
 [![CI](https://github.com/agentsystems/agent-control-plane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/agentsystems/agent-control-plane/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/agentsystems/agent-control-plane/graph/badge.svg?token=C8QBKRD06Z)](https://codecov.io/gh/agentsystems/agent-control-plane)
 
 > [!NOTE]
-> **Public Beta** - Part of the AgentSystems platform. Official public launch September 15, 2025.
+> **Pre-Release Software** - AgentSystems is in active development. Join our [Discord](https://discord.com/invite/JsxDxQ5zfV) for updates and early access.
 > ⭐ [**Star the main repository**](https://github.com/agentsystems/agentsystems) to show your support!
 
 > This is the **gateway and orchestration layer** for AgentSystems. See the [main repository](https://github.com/agentsystems/agentsystems) for platform overview and documentation.
@@ -170,7 +170,7 @@ The gateway automatically:
 1. **Creates thread directories**: `/artifacts/{thread-id}/{in,out}/` for each request
 2. **Saves uploaded files**: Files go to `/artifacts/{thread-id}/in/{filename}`
 3. **Sets permissions**: Attempts to configure agents (UID 1001) for file access
-4. **Enforces limits**: Default 200MB upload limit (configurable via `ACP_MAX_UPLOAD_MB`)
+4. **Configured with limits**: Default 200MB upload limit (configurable via `ACP_MAX_UPLOAD_MB`)
 
 ### Thread-Centric Structure
 
@@ -266,7 +266,7 @@ The gateway is organized into focused modules:
 1. **Auto-discovery**: Finds agents by Docker labels (`agent.enabled=true`)
 2. **Lazy start**: Automatically starts stopped agent containers on first request
 3. **Idle management**: Stops containers after configurable idle timeout
-4. **Egress control**: HTTP proxy restricts agent outbound requests to allowlisted URLs
+4. **Egress control**: HTTP proxy configured to restrict agent outbound requests to allowlisted URLs
 5. **File uploads**: Handles multipart uploads with automatic artifact management
 6. **Async by default**: Non-blocking invocations with status polling
 7. **Type safety**: Full type hints for better IDE support
