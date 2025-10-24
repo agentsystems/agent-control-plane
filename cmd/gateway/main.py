@@ -11,7 +11,7 @@ import httpx
 import structlog
 import datetime
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from cmd.gateway.models import (
     AgentsFilter,
@@ -1700,6 +1700,64 @@ async def _get_registry_versions(owner: str, package: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error("get_registry_versions_failed", package=package, error=str(e))
         return {"available_versions": [], "latest_version": "unknown"}
+
+
+# ---------------------------------------------------------------------------
+# GitHub Avatar Proxy
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/avatar/github/{username}")
+async def github_avatar(username: str) -> Response:
+    """Proxy GitHub user avatar for cross-origin display.
+
+    Fetches GitHub user avatars and serves them with CORP headers
+    to allow display in the UI.
+
+    Args:
+        username: GitHub username
+
+    Returns:
+        Image file with CORP headers and caching
+
+    Raises:
+        HTTPException: 404 if user not found, 502 if GitHub unavailable
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10) as cli:
+            # Fetch avatar directly from GitHub's avatar service
+            # Using githubusercontent.com which is more reliable than API
+            avatar_url = f"https://avatars.githubusercontent.com/{username}?size=40"
+
+            avatar_resp = await cli.get(avatar_url, follow_redirects=True)
+
+            if avatar_resp.status_code == 404:
+                raise HTTPException(status_code=404, detail="GitHub user not found")
+            elif avatar_resp.status_code != 200:
+                logger.warning(
+                    "github_avatar_fetch_failed",
+                    username=username,
+                    status_code=avatar_resp.status_code,
+                )
+                raise HTTPException(
+                    status_code=502, detail="Failed to fetch avatar from GitHub"
+                )
+
+            # Return with CORP headers to allow cross-origin display
+            return Response(
+                content=avatar_resp.content,
+                media_type=avatar_resp.headers.get("content-type", "image/png"),
+                headers={
+                    "Cross-Origin-Resource-Policy": "cross-origin",
+                    "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+                },
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("github_avatar_error", username=username, error=str(e))
+        raise HTTPException(status_code=502, detail="Failed to fetch avatar")
 
 
 @app.get("/component-versions")
