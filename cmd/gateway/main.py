@@ -1709,10 +1709,10 @@ async def _get_registry_versions(owner: str, package: str) -> Dict[str, Any]:
 
 @app.get("/api/avatar/github/{username}")
 async def github_avatar(username: str) -> Response:
-    """Proxy GitHub user avatar with CORP headers for cross-origin display.
+    """Proxy GitHub user avatar for cross-origin display.
 
-    Fetches GitHub user avatars and serves them with appropriate CORP headers
-    to allow display in the UI while maintaining strict COEP policies.
+    Fetches GitHub user avatars and serves them with CORP headers
+    to allow display in the UI.
 
     Args:
         username: GitHub username
