@@ -1707,7 +1707,7 @@ async def _get_registry_versions(owner: str, package: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/avatar/github/{username}")
+@app.get("/avatar/github/{username}")
 async def github_avatar(username: str) -> Response:
     """Proxy GitHub user avatar for cross-origin display.
 
