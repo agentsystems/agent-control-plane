@@ -255,19 +255,45 @@ async def list_agents_filtered(filter: AgentsFilter) -> Dict[str, List[str]]:
 
 @app.get("/agents/{agent}")
 async def agent_detail(agent: str) -> Dict[str, Any]:
-    """Get detailed metadata for a specific agent.
+    """Get detailed metadata for a specific agent from config.
+
+    Reads metadata from agentsystems-config.yml (index_metadata field)
+    instead of calling the container's /metadata endpoint.
 
     Args:
         agent: Name of the agent
 
     Returns:
-        Agent metadata or error dictionary if agent not found
+        Agent metadata from config or error dictionary if not found
     """
     if agent not in docker_discovery.AGENTS:
         return {"error": "unknown agent"}
-    async with httpx.AsyncClient() as cli:
-        r = await cli.get(f"http://{agent}:8000/metadata", timeout=10)
-    return r.json()
+
+    try:
+        # Read metadata from config file
+        config = await read_agentsystems_config()
+        agents = config.get("agents", [])
+
+        # Find agent config
+        agent_config = next((a for a in agents if a.get("name") == agent), None)
+        if not agent_config:
+            logger.warning("agent_not_in_config", agent=agent)
+            return {"error": "agent not found in config"}
+
+        # Return index_metadata if available, otherwise return basic info
+        metadata = agent_config.get("index_metadata", {})
+
+        # Always include basic info from config
+        if "name" not in metadata:
+            metadata["name"] = agent_config.get("name", agent)
+        if "developer" not in metadata:
+            metadata["developer"] = agent_config.get("developer", "")
+
+        return metadata
+
+    except Exception as e:
+        logger.error("agent_metadata_error", agent=agent, error=str(e))
+        return {"error": f"Failed to read agent metadata: {str(e)}"}
 
 
 @app.post("/agents/{agent}/start")
