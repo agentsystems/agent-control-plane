@@ -283,11 +283,19 @@ async def agent_detail(agent: str) -> Dict[str, Any]:
         # Return index_metadata if available, otherwise return basic info
         metadata = agent_config.get("index_metadata", {})
 
-        # Always include basic info from config
+        # Always include basic info from config (top-level fields)
         if "name" not in metadata:
             metadata["name"] = agent_config.get("name", agent)
         if "developer" not in metadata:
             metadata["developer"] = agent_config.get("developer", "")
+
+        # Add version from tag if not in index_metadata
+        if "version" not in metadata and "tag" in agent_config:
+            metadata["version"] = agent_config.get("tag", "")
+
+        # Add repo information
+        if "repo" not in metadata and "repo" in agent_config:
+            metadata["repo"] = agent_config.get("repo", "")
 
         return metadata
 
