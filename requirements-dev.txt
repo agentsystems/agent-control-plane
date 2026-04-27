@@ -1,5 +1,5 @@
 pre-commit
-pytest>=8
+pytest>=9.0.3
 pytest-cov
 pip-licenses>=4.0.0
 fastapi
