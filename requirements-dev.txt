@@ -1,7 +1,7 @@
 pre-commit
 pytest>=8
 pytest-cov
-pip-licenses>=4.0.0
+pip-licenses>=5.5.5
 fastapi
 asyncpg
 docker
